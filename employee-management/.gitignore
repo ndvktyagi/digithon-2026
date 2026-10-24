@@ -1,0 +1,17 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Angular / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Local environment files
+.env
+.env.*
