@@ -57,8 +57,8 @@ public class GitHubApiClient {
         if (host.equals("github.com") || host.equals("www.github.com") || host.equals("api.github.com")) {
             return "https://api.github.com";
         }
-        String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/+$", "");
-        return "https://" + host + port + (path.endsWith("/api/v3") ? path : "/api/v3");
+        // Any repo path in the URL (e.g. /org/repo.git) is ignored; Enterprise API lives at /api/v3
+        return "https://" + host + port + "/api/v3";
     }
 
     public JsonNode get(String apiBase, String token, String path) {

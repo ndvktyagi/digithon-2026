@@ -15,6 +15,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatChipsModule } from '@angular/material/chips';
 import { map, startWith } from 'rxjs/operators';
 import { NotificationService } from '../../../core/notifications/notification.service';
+import { FolderPickerComponent } from './folder-picker.component';
 
 interface RepositorySummary {
   owner: string;
@@ -33,6 +34,11 @@ interface ConnectResponse {
   repositories: RepositorySummary[];
 }
 
+interface FoldersResponse {
+  folders: string[];
+  truncated: boolean;
+}
+
 interface BranchSummary {
   name: string;
   protectedBranch: boolean;
@@ -46,6 +52,7 @@ interface ConnectorSummary {
   name: string;
   branch: string;
   apiBaseUrl: string;
+  includePaths: string[];
   verified: boolean;
   createdAt: string;
 }
@@ -56,7 +63,7 @@ interface ConnectorSummary {
   imports: [
     CommonModule, ReactiveFormsModule, RouterModule, MatCardModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatIconModule, MatAutocompleteModule,
-    MatProgressBarModule, MatTableModule, MatChipsModule,
+    MatProgressBarModule, MatTableModule, MatChipsModule, FolderPickerComponent,
   ],
   template: `
     <div class="page">
@@ -140,14 +147,25 @@ interface ConnectorSummary {
                   </mat-select>
                   <mat-hint>{{ branches.length }} branches</mat-hint>
                 </mat-form-field>
-                <div class="actions">
+                <div class="repo-link">
                   <a mat-button [href]="selectedRepo.htmlUrl" target="_blank" rel="noopener">
                     <mat-icon>open_in_new</mat-icon> View on GitHub
                   </a>
-                  <button mat-raised-button color="primary" (click)="save()" [disabled]="!branch.value || busy">
-                    <mat-icon>save</mat-icon> Save for scanning
-                  </button>
                 </div>
+              </div>
+            </section>
+
+            <!-- Step 4: folders -->
+            <section class="step" *ngIf="selectedRepo && branch.value">
+              <h3><span class="num">4</span> Select folders to scan</h3>
+              <p *ngIf="folders === null" class="loading">Loading folders…</p>
+              <app-folder-picker *ngIf="folders !== null"
+                                 [folders]="folders" [truncated]="foldersTruncated"
+                                 (selectionChange)="includePaths = $event"></app-folder-picker>
+              <div class="actions save-row">
+                <button mat-raised-button color="primary" (click)="save()" [disabled]="folders === null || busy">
+                  <mat-icon>save</mat-icon> Save for scanning
+                </button>
               </div>
             </section>
           </ng-container>
@@ -168,6 +186,13 @@ interface ConnectorSummary {
             <ng-container matColumnDef="branch">
               <th mat-header-cell *matHeaderCellDef>Branch</th>
               <td mat-cell *matCellDef="let c"><code>{{ c.branch }}</code></td>
+            </ng-container>
+            <ng-container matColumnDef="paths">
+              <th mat-header-cell *matHeaderCellDef>Folders</th>
+              <td mat-cell *matCellDef="let c">
+                <span *ngIf="!c.includePaths.length" class="muted">Whole repository</span>
+                <div *ngFor="let p of c.includePaths"><code>{{ p }}/</code></div>
+              </td>
             </ng-container>
             <ng-container matColumnDef="host">
               <th mat-header-cell *matHeaderCellDef>GitHub host</th>
@@ -203,6 +228,9 @@ interface ConnectorSummary {
     }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
     .actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 12px; }
+    .save-row { margin-top: 16px; }
+    .repo-link { display: flex; align-items: center; height: 56px; }
+    .loading, .muted { color: #757575; }
     .full { width: 100%; }
     .connected { display: flex; align-items: center; gap: 6px; color: #2e7d32; margin: 0 0 16px; }
     .connected mat-icon { font-size: 20px; width: 20px; height: 20px; }
@@ -231,11 +259,14 @@ export class GithubConnectorComponent implements OnInit {
   readonly repoSearch = new FormControl<RepositorySummary | string>('', { nonNullable: true });
   readonly branch = new FormControl<string>('', { nonNullable: true });
 
-  readonly columns = ['repo', 'branch', 'host', 'status', 'created'];
+  readonly columns = ['repo', 'branch', 'paths', 'status', 'created'];
 
   connection: ConnectResponse | null = null;
   selectedRepo: RepositorySummary | null = null;
   branches: BranchSummary[] = [];
+  folders: string[] | null = null;
+  foldersTruncated = false;
+  includePaths: string[] = [];
   connectors: ConnectorSummary[] = [];
   showToken = false;
   busy = false;
@@ -255,6 +286,7 @@ export class GithubConnectorComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadConnectors();
+    this.branch.valueChanges.subscribe((name) => this.loadFolders(name));
   }
 
   displayRepo = (repo: RepositorySummary | string | null): string =>
@@ -268,6 +300,11 @@ export class GithubConnectorComponent implements OnInit {
         this.connection = response;
         this.repoSearch.setValue('');
         this.busy = false;
+        const fromUrl = this.repoFromUrl(response.repositories);
+        if (fromUrl) {
+          this.repoSearch.setValue(fromUrl);
+          this.selectRepo(fromUrl);
+        }
       },
       error: () => (this.busy = false),
     });
@@ -301,6 +338,7 @@ export class GithubConnectorComponent implements OnInit {
       owner: this.selectedRepo.owner,
       repo: this.selectedRepo.name,
       branch: this.branch.value,
+      includePaths: this.includePaths,
     }).subscribe({
       next: (saved) => {
         this.notification.showSuccess(`${saved.owner}/${saved.name} (${saved.branch}) saved for scanning`);
@@ -318,9 +356,45 @@ export class GithubConnectorComponent implements OnInit {
     this.resetSelection();
   }
 
+  private loadFolders(branch: string): void {
+    this.folders = null;
+    this.includePaths = [];
+    const repo = this.selectedRepo;
+    if (!repo || !branch) return;
+    this.http.post<FoldersResponse>(`${this.basePath}/folders`, {
+      ...this.credentials.getRawValue(),
+      owner: repo.owner,
+      repo: repo.name,
+      branch,
+    }).subscribe({
+      next: (response) => {
+        // Ignore late responses for a previously selected repo/branch
+        if (this.selectedRepo === repo && this.branch.value === branch) {
+          this.folders = response.folders;
+          this.foldersTruncated = response.truncated;
+        }
+      },
+    });
+  }
+
+  /** Picks the repo when the URL was pasted as https://host/owner/repo(.git). */
+  private repoFromUrl(repos: RepositorySummary[]): RepositorySummary | undefined {
+    try {
+      const parts = new URL(this.credentials.controls.githubUrl.value).pathname
+        .replace(/\.git$/, '').split('/').filter(Boolean);
+      if (parts.length < 2) return undefined;
+      const fullName = `${parts[0]}/${parts[1]}`.toLowerCase();
+      return repos.find((r) => r.fullName.toLowerCase() === fullName);
+    } catch {
+      return undefined;
+    }
+  }
+
   private resetSelection(): void {
     this.selectedRepo = null;
     this.branches = [];
+    this.folders = null;
+    this.includePaths = [];
     this.branch.setValue('');
     this.repoSearch.setValue('');
   }

@@ -33,6 +33,13 @@ public class GitHubConnectorController {
         return service.listBranches(workspaceId, request, jwt.getSubject());
     }
 
+    @PostMapping("/folders")
+    public FoldersResponse folders(@PathVariable UUID workspaceId,
+                                   @Valid @RequestBody FoldersRequest request,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return service.listFolders(workspaceId, request, jwt.getSubject());
+    }
+
     @PostMapping("/connectors")
     @ResponseStatus(HttpStatus.CREATED)
     public ConnectorSummary save(@PathVariable UUID workspaceId,

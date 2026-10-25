@@ -17,7 +17,14 @@ public final class GitHubDtos {
 
     public record SaveConnectorRequest(@NotBlank String githubUrl, @NotBlank String token,
                                        @NotBlank String owner, @NotBlank String repo,
-                                       @NotBlank String branch) {}
+                                       @NotBlank String branch, List<String> includePaths) {}
+
+    public record FoldersRequest(@NotBlank String githubUrl, @NotBlank String token,
+                                 @NotBlank String owner, @NotBlank String repo,
+                                 @NotBlank String branch) {}
+
+    /** Directory paths of the branch; truncated when GitHub's tree listing hit its size limit. */
+    public record FoldersResponse(List<String> folders, boolean truncated) {}
 
     public record RepositorySummary(String owner, String name, String fullName, String description,
                                     boolean privateRepo, String defaultBranch, String htmlUrl,
@@ -29,5 +36,5 @@ public final class GitHubDtos {
 
     public record ConnectorSummary(UUID id, UUID projectId, String projectName, String repositoryUrl,
                                    String owner, String name, String branch, String apiBaseUrl,
-                                   boolean verified, String status, Instant createdAt) {}
+                                   List<String> includePaths, boolean verified, String status, Instant createdAt) {}
 }

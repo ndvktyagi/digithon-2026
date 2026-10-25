@@ -41,6 +41,10 @@ public class RepositoryConnector extends TenantAwareEntity {
     @Column(length = 150)
     private String branch;
 
+    /** Newline-separated folders to scan; null means the whole repository. */
+    @Column(name = "include_paths", columnDefinition = "TEXT")
+    private String includePaths;
+
     @JsonIgnore
     @Column(name = "encrypted_token", columnDefinition = "TEXT")
     private String encryptedToken; // AES-GCM, see SecretCipher

@@ -57,9 +57,9 @@ interface ConnectorSummary {
         <mat-card-content>
           <form [formGroup]="form" (ngSubmit)="save()">
             <mat-form-field class="full-width">
-              <mat-label>Application / Project Name</mat-label>
+              <mat-label>Application / Project Name*</mat-label>
               <input matInput formControlName="projectName" placeholder="Employee Management" />
-              <mat-hint>The connector is attached to this project (created if it doesn't exist)</mat-hint>
+              <mat-hint>Required to save. The connector is attached to this project (created if it doesn't exist)</mat-hint>
             </mat-form-field>
 
             <div class="form-grid">
