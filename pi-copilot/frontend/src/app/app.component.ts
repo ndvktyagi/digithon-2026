@@ -27,8 +27,6 @@ interface NavItem {
   roles?: string[];
   /** Lifecycle stage this item belongs to; shows its step number / done state. */
   stage?: string;
-  /** Accent for the icon tile, hover and active states. */
-  color: string;
 }
 
 /** Same role restrictions as the stage pages' route guards. */
@@ -40,8 +38,6 @@ const STAGE_ROLES: Partial<Record<string, string[]>> = {
 
 const LIFECYCLE_TITLE = 'Workspace Lifecycle';
 
-/** One accent per lifecycle step, in step order. */
-const STAGE_COLORS = ['#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1'];
 
 interface NavSection {
   title: string;
@@ -74,28 +70,33 @@ interface NavSection {
         <nav class="nav">
           <ng-container *ngFor="let section of visibleSections$ | async">
             <div class="nav-section">{{ section.title }}</div>
-            <div class="progress" *ngIf="section.title === lifecycleTitle && lifecycleProgress() as p">
-              <div class="progress-meta"><span>{{ p.done }} of {{ p.total }} complete</span><span>{{ p.percent }}%</span></div>
-              <div class="progress-track"><div class="progress-fill" [style.width.%]="p.percent"></div></div>
-            </div>
             <a *ngFor="let item of section.items" class="nav-link" [routerLink]="item.route" [fragment]="item.fragment"
                routerLinkActive="active" [routerLinkActiveOptions]="activeOptions" (click)="onNavigate()"
-               [style.--nav-c]="item.color"
                [matTooltip]="item.label" matTooltipPosition="right"
                [matTooltipDisabled]="!collapsed() || isMobile()">
               <span class="nav-icon"><mat-icon>{{ item.icon }}</mat-icon></span>
               <span class="nav-label">{{ item.label }}</span>
               <span class="nav-step" *ngIf="item.stage" [ngClass]="stepState(item.stage)"
                     [attr.aria-label]="'Step ' + stepNumber(item.stage) + ', ' + stepState(item.stage)">
-                <mat-icon *ngIf="stepState(item.stage) === 'done'">check</mat-icon>
-                <mat-icon *ngIf="stepState(item.stage) === 'rejected'">block</mat-icon>
-                <ng-container *ngIf="stepState(item.stage) !== 'done' && stepState(item.stage) !== 'rejected'">{{ stepNumber(item.stage) }}</ng-container>
+                {{ stepNumber(item.stage) }}
               </span>
             </a>
           </ng-container>
         </nav>
 
         <div class="sidebar-footer">
+          <div class="progress" *ngIf="lifecycleProgress() as p" [class.rejected]="p.rejected"
+               [class.complete]="p.done === p.total">
+            <div class="progress-title">
+              <mat-icon>{{ p.rejected ? 'block' : p.done === p.total ? 'verified' : 'route' }}</mat-icon>
+              Workflow progress
+            </div>
+            <div class="progress-meta">
+              <span>{{ p.rejected ? 'Rejected · ' : '' }}{{ p.done }} of {{ p.total }} complete</span>
+              <span class="progress-pct">{{ p.percent }}%</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" [style.width.%]="p.percent"></div></div>
+          </div>
           <a class="nav-link logout" (click)="logout()" matTooltip="Sign out" matTooltipPosition="right"
              [matTooltipDisabled]="!collapsed() || isMobile()">
             <span class="nav-icon"><mat-icon>logout</mat-icon></span>
@@ -165,11 +166,18 @@ interface NavSection {
     :host { display: block; }
     .shell { height: 100vh; background: var(--pc-bg); }
 
-    /* Sidebar */
+    /* Sidebar: deep navy with a single cyan accent, matching the brand artwork */
     .sidebar {
+      --sb-accent: #22d3ee;
+      --sb-text: #cbd5e1;
+      --sb-muted: #7c8db5;
+      --sb-line: rgba(148, 163, 184, 0.14);
       width: var(--pc-sidebar-width);
-      background: var(--pc-surface);
-      border-right: 1px solid var(--pc-border) !important;
+      background:
+        radial-gradient(120% 60% at 0% 0%, rgba(34, 211, 238, 0.10), transparent 60%),
+        linear-gradient(180deg, #0b1733 0%, #0a1430 55%, #081026 100%);
+      border-right: 1px solid rgba(34, 211, 238, 0.12) !important;
+      color: var(--sb-text);
       transition: width 0.2s ease;
     }
     .sidebar ::ng-deep .mat-drawer-inner-container {
@@ -181,92 +189,114 @@ interface NavSection {
     .collapsed .brand { justify-content: center; padding: 20px 0; }
     .collapsed .brand-logo { display: none; }
     .collapsed .nav-link { justify-content: center; padding: 8px 0; }
-    .collapsed .nav-link:hover { transform: none; }
 
     .brand {
       display: flex; align-items: center; gap: 10px;
-      padding: 20px 16px 20px 20px;
+      padding: 20px 14px 18px 18px;
+      border-bottom: 1px solid var(--sb-line);
     }
     .brand-logo {
-      width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
-      object-fit: cover;
-      box-shadow: 0 2px 8px rgba(14, 116, 200, 0.35);
+      width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0; object-fit: cover;
+      box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 0 18px rgba(34, 211, 238, 0.30);
     }
-    .brand-name { font-size: 16px; font-weight: 700; color: var(--pc-text); flex: 1; white-space: nowrap; }
+    .brand-name {
+      flex: 1; white-space: nowrap; font-size: 15px; font-weight: 700; letter-spacing: 0.01em;
+      background: linear-gradient(90deg, #ffffff, #a5f3fc);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .sidebar .collapse-btn { color: var(--sb-muted); }
+    .sidebar .collapse-btn:hover { background: rgba(148, 163, 184, 0.12); color: #fff; }
 
-    .nav { flex: 1; padding: 4px 12px; overflow-y: auto; }
+    .nav { flex: 1; padding: 6px 12px 12px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, 0.25) transparent; }
     .nav-section {
-      padding: 16px 12px 6px;
-      font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-      color: var(--pc-text-subtle);
+      padding: 18px 12px 6px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--sb-muted);
     }
     .nav-link {
-      --nav-c: var(--pc-primary);
+      --nav-c: var(--sb-accent);
       position: relative;
       display: flex; align-items: center; gap: 12px;
-      padding: 7px 10px; margin: 3px 0;
-      border-radius: 12px;
-      color: #4b5563; text-decoration: none; font-weight: 500; cursor: pointer;
+      padding: 6px 10px; margin: 2px 0;
+      border-radius: 10px; border: 1px solid transparent;
+      color: var(--sb-text); text-decoration: none; font-size: 13.5px; font-weight: 500; cursor: pointer;
       white-space: nowrap;
-      transition: background 0.2s, color 0.2s, transform 0.2s ease;
+      transition: background 0.18s, color 0.18s, border-color 0.18s;
     }
-    .nav-link:hover {
-      background: color-mix(in srgb, var(--nav-c) 8%, transparent);
-      color: var(--pc-text);
-      transform: translateX(3px);
-    }
+    .nav-link:hover { background: rgba(148, 163, 184, 0.08); color: #fff; }
     .nav-link.active {
-      background: linear-gradient(90deg, color-mix(in srgb, var(--nav-c) 16%, transparent), color-mix(in srgb, var(--nav-c) 4%, transparent));
-      color: color-mix(in srgb, var(--nav-c) 75%, #111827); font-weight: 600;
+      background: linear-gradient(90deg, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0.04));
+      border-color: rgba(34, 211, 238, 0.22);
+      color: #fff; font-weight: 600;
     }
     /* Accent bar on the active item */
     .nav-link.active::before {
-      content: ''; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 4px;
-      border-radius: 0 4px 4px 0; background: var(--nav-c);
+      content: ''; position: absolute; left: -12px; top: 9px; bottom: 9px; width: 3px;
+      border-radius: 0 3px 3px 0; background: var(--sb-accent);
+      box-shadow: 0 0 10px var(--sb-accent);
     }
     .nav-icon {
-      display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0;
-      border-radius: 9px;
-      background: color-mix(in srgb, var(--nav-c) 12%, transparent);
-      color: var(--nav-c);
-      transition: background 0.2s, color 0.2s, transform 0.25s ease, box-shadow 0.2s;
+      display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0;
+      border-radius: 8px; color: #8fa3c8;
+      transition: color 0.18s, background 0.18s, box-shadow 0.18s;
     }
-    .nav-link:hover .nav-icon { transform: scale(1.08) rotate(-4deg); }
+    .nav-link:hover .nav-icon { color: #e2e8f0; }
     .nav-link.active .nav-icon {
-      background: linear-gradient(135deg, var(--nav-c), color-mix(in srgb, var(--nav-c) 70%, #000));
-      color: #fff;
-      box-shadow: 0 4px 10px color-mix(in srgb, var(--nav-c) 40%, transparent);
+      color: var(--sb-accent); background: rgba(34, 211, 238, 0.12);
+      box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.25);
     }
-    .nav-link.logout { --nav-c: var(--pc-danger); color: var(--pc-danger); font-weight: 600; }
-    .nav-link.logout:hover { background: var(--pc-danger-soft); color: #b91c1c; }
-    .nav-link.logout:hover .nav-icon { background: var(--pc-danger); color: #fff; }
+    .nav-link.logout { color: #fca5a5; font-weight: 600; }
+    .nav-link.logout .nav-icon { color: #f87171; }
+    .nav-link.logout:hover { background: rgba(248, 113, 113, 0.12); color: #fecaca; }
 
-    .progress { padding: 2px 12px 8px; }
+    /* Workflow progress: light blue in every state */
+    .progress {
+      padding: 12px; margin-bottom: 10px; border-radius: 12px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(34, 211, 238, 0.06));
+      border: 1px solid rgba(56, 189, 248, 0.30);
+    }
+    .progress-title {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+      font-size: 12px; font-weight: 700; color: #e0f2fe;
+    }
+    .progress-title mat-icon { font-size: 16px; width: 16px; height: 16px; color: #7dd3fc; }
     .progress-meta {
       display: flex; justify-content: space-between;
-      font-size: 11px; color: var(--pc-text-muted); margin-bottom: 5px;
+      font-size: 11px; color: #bae6fd; margin-bottom: 6px;
     }
-    .progress-track { height: 6px; border-radius: 999px; background: #eef0f4; overflow: hidden; }
+    .progress-pct { font-weight: 700; color: #7dd3fc; }
+    .progress-track { height: 6px; border-radius: 999px; background: rgba(148, 163, 184, 0.20); overflow: hidden; }
     .progress-fill {
       height: 100%; border-radius: inherit;
-      background: linear-gradient(90deg, #10b981, #06b6d4, #5b3df5);
+      background: linear-gradient(90deg, #7dd3fc, #38bdf8, #22d3ee);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
       transition: width 0.4s ease;
     }
-    .nav-icon mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .nav-icon mat-icon { font-size: 19px; width: 19px; height: 19px; }
     .nav-label { flex: 1; }
     .nav-step {
       display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
-      border: 1.5px solid var(--pc-border); color: var(--pc-text-subtle); font-size: 11px; font-weight: 700;
+      border: 1.5px solid rgba(148, 163, 184, 0.35); color: var(--sb-muted); font-size: 10.5px; font-weight: 700;
     }
-    .nav-step mat-icon { font-size: 14px; width: 14px; height: 14px; }
-    .nav-step.done { background: var(--pc-success); border-color: var(--pc-success); color: #fff; }
-    .nav-step.current { border-color: var(--pc-primary); background: var(--pc-primary); color: #fff; box-shadow: 0 0 0 3px var(--pc-primary-soft); }
-    .nav-step.rejected { border-color: var(--pc-danger); background: var(--pc-danger); color: #fff; box-shadow: 0 0 0 3px var(--pc-danger-soft); }
-    /* Steps after a rejection will never run */
-    .nav-step.halted { opacity: 0.45; border-style: dashed; }
+    .nav-step.done { background: rgba(16, 185, 129, 0.18); border-color: rgba(52, 211, 153, 0.55); color: #6ee7b7; }
+    /* The step in progress pulses in the accent colour */
+    .nav-step.current {
+      border-color: var(--sb-accent); background: var(--sb-accent); color: #062033;
+      animation: step-pulse 1.4s ease-in-out infinite;
+    }
+    /* Upcoming steps, including those after a rejection */
+    .nav-step.upcoming, .nav-step.halted { background: rgba(245, 158, 11, 0.12); border-color: rgba(251, 191, 36, 0.55); color: #fbbf24; }
+    .nav-step.rejected { border-color: #f87171; background: #ef4444; color: #fff; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25); }
+    @keyframes step-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55); }
+      50% { box-shadow: 0 0 0 5px rgba(34, 211, 238, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .nav-step.current { animation: none; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25); }
+    }
     .collapsed .nav-step { display: none; }
 
-    .sidebar-footer { padding: 12px; border-top: 1px solid var(--pc-border); }
+    .sidebar-footer { padding: 12px; border-top: 1px solid var(--sb-line); }
 
     /* Top bar */
     .content { display: flex; flex-direction: column; }
@@ -400,34 +430,33 @@ export class AppComponent {
     {
       title: 'Overview',
       items: [
-        { label: 'Dashboard', icon: 'grid_view', route: '/dashboard', color: '#6366f1' },
-        { label: 'Workspaces', icon: 'workspaces', route: '/workspaces', color: '#0ea5e9' },
-        { label: 'Lifecycle', icon: 'route', route: '/lifecycle', color: '#8b5cf6' },
+        { label: 'Dashboard', icon: 'grid_view', route: '/dashboard' },
+        { label: 'Workspaces', icon: 'workspaces', route: '/workspaces' },
+        { label: 'Lifecycle', icon: 'route', route: '/lifecycle' },
       ],
     },
     {
       title: LIFECYCLE_TITLE,
-      items: LIFECYCLE_STAGES.map((def, i) => ({
+      items: LIFECYCLE_STAGES.map((def) => ({
         label: def.title,
         icon: def.icon,
         route: def.navRoute,
         fragment: def.navFragment,
         stage: def.stage,
         roles: STAGE_ROLES[def.stage],
-        color: STAGE_COLORS[i % STAGE_COLORS.length],
       })),
     },
     {
       title: 'After Finalize',
       items: [
-        { label: 'Monitoring', icon: 'monitor_heart', route: '/monitoring', color: '#14b8a6' },
+        { label: 'Monitoring', icon: 'monitor_heart', route: '/monitoring' },
       ],
     },
     {
       title: 'Governance',
       items: [
-        { label: 'Audit', icon: 'history', route: '/audit', color: '#64748b', roles: ['PRIVACY_REVIEWER', 'SECURITY_REVIEWER', 'AUDITOR', 'PLATFORM_ADMIN'] },
-        { label: 'Admin', icon: 'admin_panel_settings', route: '/admin', color: '#7c3aed', roles: ['PLATFORM_ADMIN'] },
+        { label: 'Audit', icon: 'history', route: '/audit', roles: ['PRIVACY_REVIEWER', 'SECURITY_REVIEWER', 'AUDITOR', 'PLATFORM_ADMIN'] },
+        { label: 'Admin', icon: 'admin_panel_settings', route: '/admin', roles: ['PLATFORM_ADMIN'] },
       ],
     },
   ];
@@ -441,8 +470,6 @@ export class AppComponent {
   ]).pipe(map(([workspaces, id]) =>
     workspaces.find((w) => w.id === (id ?? sessionStorage.getItem('workspace_id')))?.lifecycleStage)));
 
-  readonly lifecycleTitle = LIFECYCLE_TITLE;
-
   /** Completed lifecycle steps for the workspace in use; null until a stage is known. */
   readonly lifecycleProgress = computed(() => {
     const current = this.currentStage();
@@ -450,7 +477,7 @@ export class AppComponent {
     const total = LIFECYCLE_STAGES.length;
     const done = current === 'COMPLETED' ? total
       : LIFECYCLE_STAGES.filter((d) => this.stepState(d.stage) === 'done').length;
-    return { done, total, percent: Math.round((done / total) * 100) };
+    return { done, total, percent: Math.round((done / total) * 100), rejected: current === 'REJECTED' };
   });
 
   stepNumber(stage: string): number {
