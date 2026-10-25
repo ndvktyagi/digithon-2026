@@ -62,13 +62,37 @@ public class GitHubApiClient {
     }
 
     public JsonNode get(String apiBase, String token, String path) {
+        return send("GET", apiBase, token, path, null);
+    }
+
+    public JsonNode post(String apiBase, String token, String path, Object body) {
+        return send("POST", apiBase, token, path, body);
+    }
+
+    public JsonNode patch(String apiBase, String token, String path, Object body) {
+        return send("PATCH", apiBase, token, path, body);
+    }
+
+    public JsonNode put(String apiBase, String token, String path, Object body) {
+        return send("PUT", apiBase, token, path, body);
+    }
+
+    private JsonNode send(String method, String apiBase, String token, String path, Object body) {
+        HttpRequest.BodyPublisher publisher;
+        try {
+            publisher = body == null ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body));
+        } catch (IOException e) {
+            throw new ConnectorException("Could not serialize GitHub request", e);
+        }
         HttpRequest request = HttpRequest.newBuilder(URI.create(apiBase + path))
-            .timeout(Duration.ofSeconds(20))
+            .timeout(Duration.ofSeconds(30))
             .header("Accept", "application/vnd.github+json")
             .header("Authorization", "Bearer " + token)
             .header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "pi-copilot")
-            .GET()
+            .header("Content-Type", "application/json")
+            .method(method, publisher)
             .build();
         HttpResponse<String> response;
         try {
@@ -80,19 +104,33 @@ public class GitHubApiClient {
             throw new ConnectorException("GitHub request interrupted", e);
         }
         int status = response.statusCode();
+        boolean write = !"GET".equals(method);
         if (status == 401) {
             throw new ValidationException("GitHub rejected the access token (invalid or expired)");
         }
         if (status == 403 || status == 404) {
-            throw new ValidationException("The access token cannot access this resource on GitHub");
+            throw new ValidationException(write
+                ? "The access token cannot write to this repository (it needs Contents: read and write)"
+                : "The access token cannot access this resource on GitHub");
+        }
+        if (status == 422) {
+            throw new ValidationException("GitHub rejected the request: " + githubMessage(response.body()));
         }
         if (status >= 300) {
-            throw new ConnectorException("GitHub returned HTTP " + status, null);
+            throw new ConnectorException("GitHub returned HTTP " + status + ": " + githubMessage(response.body()), null);
         }
         try {
             return objectMapper.readTree(response.body());
         } catch (IOException e) {
             throw new ConnectorException("Unexpected response from GitHub", e);
+        }
+    }
+
+    private String githubMessage(String body) {
+        try {
+            return objectMapper.readTree(body).path("message").asText("unknown error");
+        } catch (IOException e) {
+            return "unknown error";
         }
     }
 

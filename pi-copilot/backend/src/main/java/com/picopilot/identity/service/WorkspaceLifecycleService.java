@@ -2,6 +2,7 @@ package com.picopilot.identity.service;
 
 import com.picopilot.audit.service.AuditService;
 import com.picopilot.backfill.repository.BackfillJobRepository;
+import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.exception.InvalidStateException;
 import com.picopilot.common.exception.ResourceNotFoundException;
 import com.picopilot.common.exception.ValidationException;
@@ -10,7 +11,11 @@ import com.picopilot.common.model.Severity;
 import com.picopilot.common.model.UserRole;
 import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.encryption.repository.EncryptionProviderConfigRepository;
+import com.picopilot.datasync.model.DataSyncRun;
+import com.picopilot.datasync.repository.DataSyncRunRepository;
 import com.picopilot.featureflag.repository.FeatureFlagRepository;
+import com.picopilot.implementation.model.ImplementationRun;
+import com.picopilot.implementation.repository.ImplementationRunRepository;
 import com.picopilot.identity.dto.StageStatus;
 import com.picopilot.identity.dto.WorkspaceLifecycleResponse;
 import com.picopilot.identity.model.Workspace;
@@ -22,6 +27,7 @@ import com.picopilot.scanner.service.ScannerService;
 import com.picopilot.scanner.repository.ScanJobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +57,9 @@ public class WorkspaceLifecycleService {
     private final EncryptionProviderConfigRepository providerRepository;
     private final BackfillJobRepository backfillJobRepository;
     private final FeatureFlagRepository featureFlagRepository;
+    private final ScannerService scannerService;
+    private final ImplementationRunRepository implementationRunRepository;
+    private final DataSyncRunRepository dataSyncRunRepository;
 
     private record Check(boolean ready, String detail) {}
 
@@ -66,8 +75,8 @@ public class WorkspaceLifecycleService {
         Workspace workspace = loadWorkspace(workspaceId);
         WorkspaceStage current = workspace.getLifecycleStage();
 
-        if (current == WorkspaceStage.COMPLETED) {
-            throw new InvalidStateException("Workspace lifecycle is already completed");
+        if (current.isTerminal()) {
+            throw new InvalidStateException("Workspace lifecycle has ended (" + current + ")");
         }
         Check check = evaluate(workspaceId, current);
         if (!check.ready()) {
@@ -79,7 +88,33 @@ public class WorkspaceLifecycleService {
         }
 
         moveTo(workspace, current, current.next(), userId, "WORKSPACE_STAGE_ADVANCED");
+        if (current == WorkspaceStage.CONNECT) {
+            // Every verified database is queued as an Initiated scan, ready to start from Scans
+            scannerService.createInitiated(workspaceId, userId);
+        }
         return toResponse(workspace);
+    }
+
+    /**
+     * Moves the workspace forward when work for its current stage (or an earlier one it is
+     * still on) has finished, e.g. a scan completed or a scan was approved.
+     * Connect waits for an explicit "Complete" because users may still be adding connectors,
+     * and Finalize needs the user's sign-off, so neither advances automatically.
+     */
+    @EventListener
+    @Transactional
+    public void onStageWorkCompleted(StageWorkCompletedEvent event) {
+        workspaceRepository.findById(event.workspaceId()).ifPresent(workspace -> {
+            WorkspaceStage current = workspace.getLifecycleStage();
+            while (current != WorkspaceStage.CONNECT && current != WorkspaceStage.FINALIZE
+                && !current.isTerminal()
+                && current.ordinal() <= event.stage().ordinal()
+                && evaluate(workspace.getId(), current).ready()) {
+                WorkspaceStage next = current.next();
+                moveTo(workspace, current, next, event.actor(), "WORKSPACE_STAGE_AUTO_ADVANCED");
+                current = next;
+            }
+        });
     }
 
     @Transactional
@@ -88,11 +123,33 @@ public class WorkspaceLifecycleService {
         Workspace workspace = loadWorkspace(workspaceId);
         WorkspaceStage current = workspace.getLifecycleStage();
 
-        if (target == WorkspaceStage.COMPLETED || target.ordinal() >= current.ordinal()) {
+        if (target.isTerminal() || target.ordinal() >= current.ordinal()) {
             throw new ValidationException("Only an earlier stage can be reopened (current stage: " + current + ")");
         }
         moveTo(workspace, current, target, userId, "WORKSPACE_STAGE_REOPENED");
         return toResponse(workspace);
+    }
+
+    /**
+     * Moves the workspace for the implementation/review loop: back to IMPLEMENTATION (new code or
+     * changes requested), into FINAL_REVIEW (a round is waiting for review) or to the terminal
+     * REJECTED stage. The caller has already checked permissions.
+     */
+    @Transactional
+    public void applyReviewDecision(UUID workspaceId, WorkspaceStage target, String userId) {
+        if (target != WorkspaceStage.IMPLEMENTATION && target != WorkspaceStage.FINAL_REVIEW
+            && target != WorkspaceStage.REJECTED) {
+            throw new IllegalArgumentException("Only IMPLEMENTATION, FINAL_REVIEW or REJECTED can be set here");
+        }
+        Workspace workspace = loadWorkspace(workspaceId);
+        WorkspaceStage current = workspace.getLifecycleStage();
+        if (current != target) {
+            moveTo(workspace, current, target, userId, switch (target) {
+                case REJECTED -> "WORKSPACE_REJECTED";
+                case FINAL_REVIEW -> "WORKSPACE_STAGE_TO_REVIEW";
+                default -> "WORKSPACE_STAGE_RETURNED";
+            });
+        }
     }
 
     private void moveTo(Workspace workspace, WorkspaceStage from, WorkspaceStage to,
@@ -119,10 +176,12 @@ public class WorkspaceLifecycleService {
         UUID workspaceId = workspace.getId();
         WorkspaceStage current = workspace.getLifecycleStage();
         List<StageStatus> stages = new ArrayList<>();
+        // A rejected workspace stopped at Final Review: earlier stages are done, later ones never ran
+        WorkspaceStage position = current == WorkspaceStage.REJECTED ? WorkspaceStage.FINAL_REVIEW : current;
         for (WorkspaceStage stage : WorkspaceStage.values()) {
-            if (stage == WorkspaceStage.COMPLETED) continue;
-            String state = stage.ordinal() < current.ordinal() ? "DONE"
-                : stage == current ? "CURRENT" : "UPCOMING";
+            if (stage.isTerminal()) continue;
+            String state = stage.ordinal() < position.ordinal() ? "DONE"
+                : stage == position ? (current == WorkspaceStage.REJECTED ? "REJECTED" : "CURRENT") : "UPCOMING";
             Check check = evaluate(workspaceId, stage);
             stages.add(new StageStatus(stage, state, check.ready(), check.detail()));
         }
@@ -159,10 +218,35 @@ public class WorkspaceLifecycleService {
                 yield new Check(verified > 0,
                     plural(verified, "verified encryption provider", "verified encryption providers"));
             }
+            case IMPLEMENTATION -> {
+                ImplementationRun latest = implementationRunRepository
+                    .findFirstByWorkspaceIdOrderByCreatedAtDesc(workspaceId).orElse(null);
+                boolean done = latest != null && ImplementationRun.COMPLETED.equals(latest.getStatus())
+                    && !ImplementationRun.CHANGES_REQUESTED.equals(latest.getReviewStatus());
+                yield new Check(done, latest == null ? "Add encrypted columns and push the code changes to a new branch"
+                    : done ? "Round " + latest.getRoundNumber() + " pushed to " + latest.getBranchName()
+                    : ImplementationRun.WAITING.equals(latest.getStatus())
+                        ? "Changes requested: click Run again to start round " + latest.getRoundNumber()
+                    : latest.getParentRunId() != null ? "Round " + latest.getRoundNumber() + " is resolving the review comments"
+                    : "Implementation is " + latest.getStatus().toLowerCase());
+            }
+            case FINAL_REVIEW -> {
+                ImplementationRun latest = implementationRunRepository
+                    .findFirstByWorkspaceIdOrderByCreatedAtDesc(workspaceId).orElse(null);
+                String review = latest == null ? null : latest.getReviewStatus();
+                yield new Check(ImplementationRun.APPROVED.equals(review),
+                    latest == null ? "Nothing to review yet"
+                        : ImplementationRun.APPROVED.equals(review) ? "Round " + latest.getRoundNumber() + " approved"
+                        : ImplementationRun.REJECTED.equals(review) ? "Rejected in round " + latest.getRoundNumber()
+                        : "Review round " + latest.getRoundNumber() + ": approve, reject or request changes");
+            }
             case DATA_SYNC -> {
-                long jobs = backfillJobRepository.countByWorkspaceId(workspaceId);
-                long done = backfillJobRepository.countByWorkspaceIdAndStatus(workspaceId, "COMPLETED");
-                yield new Check(done > 0, done + " of " + jobs + " backfill jobs completed");
+                DataSyncRun latest = dataSyncRunRepository.findFirstByWorkspaceIdOrderByCreatedAtDesc(workspaceId).orElse(null);
+                boolean done = latest != null && DataSyncRun.COMPLETED.equals(latest.getStatus());
+                yield new Check(done, latest == null ? "Encrypt the existing PI values into the new columns"
+                    : done ? latest.getValuesVerified() + " value(s) encrypted and verified"
+                    : "Data sync " + latest.getStatus().toLowerCase()
+                        + (latest.getErrorMessage() != null ? ": " + latest.getErrorMessage() : ""));
             }
             case ENABLE_ENCRYPTION -> {
                 long flags = featureFlagRepository.countByWorkspaceId(workspaceId);
@@ -172,6 +256,7 @@ public class WorkspaceLifecycleService {
             // Cleanup is done in the target application; the stage records the user's sign-off.
             case FINALIZE -> new Check(true, "Remove duplicate code paths and plain-text columns, then confirm");
             case COMPLETED -> new Check(true, "Lifecycle complete");
+            case REJECTED -> new Check(false, "Rejected in Final Review");
         };
     }
 

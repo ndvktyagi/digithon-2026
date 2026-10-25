@@ -98,6 +98,17 @@ public class PiFinding extends TenantAwareEntity {
     @Column(name = "database_connector_id")
     private UUID databaseConnectorId;
 
+    public static final String PLAIN = "PLAIN";
+    public static final String ENCRYPTED = "ENCRYPTED";
+
+    /** PLAIN PI, or ENCRYPTED when the column already holds ciphertext (e.g. an "_enc" twin). */
+    @Column(name = "encryption_state", nullable = false, length = 20)
+    private String encryptionState = PLAIN;
+
+    /** For a plain column that already has an encrypted twin: the twin's name. */
+    @Column(name = "encrypted_column", length = 200)
+    private String encryptedColumn;
+
     /** Selected by the reviewer for encryption when the scan was approved. */
     @Column(nullable = false)
     private boolean approved;

@@ -118,11 +118,20 @@ picopilot:
     default-model: rules-only
     timeout-seconds: 30
     enabled: false
+    # Claude resolves Final Review "Improve" comments. Empty key falls back to the SDK's default credentials.
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: ${PICOPILOT_AI_MODEL:claude-opus-5-5}
+  review:
+    # How often queued improvement rounds are picked up
+    poll-interval-ms: ${PICOPILOT_REVIEW_POLL_MS:20000}
   encryption:
     default-mode: AEAD
     algorithm: AES/GCM/NoPadding
     key-size: 256
     envelope-enabled: true
+    # Base64 AES-256 key used by the LOCAL_DEV encryption provider. Must match
+    # PI_LOCAL_ENCRYPTION_KEY in the target application. Never use LOCAL_DEV in production.
+    local-dev-key: ${PI_LOCAL_ENCRYPTION_KEY:qTBIwDHqob6znFvvalLRtC33wZH04wPeuI/nVdZnnOE=}
   github:
     app-id: ${GITHUB_APP_ID:}
     app-installation-id: ${GITHUB_INSTALLATION_ID:}

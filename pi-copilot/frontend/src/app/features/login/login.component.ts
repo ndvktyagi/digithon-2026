@@ -27,9 +27,9 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
   template: `
     <div class="login-container">
       <aside class="brand-panel">
-        <div class="brand"><img class="brand-logo" src="brand/pi-logo.png" alt="" /> PI Security Copilot</div>
+        <div class="brand"><img class="brand-logo" src="brand/pi-logo.png" alt="" /> PI Security Co-Pilot</div>
         <div class="pitch">
-          <img class="hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Pilot" />
+          <img class="hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Co-Pilot" />
           <h2>Find, map and protect personal information — before it leaks.</h2>
           <ul>
             <li><mat-icon>radar</mat-icon> Discover PI across code and databases</li>
@@ -41,13 +41,13 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
       </aside>
 
       <main class="form-panel">
-      <img class="mobile-hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Pilot" />
+      <img class="mobile-hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Co-Pilot" />
       <mat-card class="login-card">
         <mat-progress-bar *ngIf="isLoading$ | async" mode="indeterminate"></mat-progress-bar>
         <div class="card-head">
-          <img class="brand-logo small" src="brand/pi-logo.png" alt="PI Security Copilot logo" />
+          <img class="brand-logo small" src="brand/pi-logo.png" alt="PI Security Co-Pilot logo" />
           <h1>Welcome back</h1>
-          <p>Sign in to PI Security Copilot to continue.</p>
+          <p>Sign in to PI Security Co-Pilot to continue.</p>
         </div>
 
         <mat-card-content>

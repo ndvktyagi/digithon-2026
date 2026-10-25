@@ -8,14 +8,17 @@ export type WorkspaceStage =
   | 'SCAN'
   | 'REVIEW'
   | 'ENCRYPTION_SETUP'
+  | 'IMPLEMENTATION'
+  | 'FINAL_REVIEW'
   | 'DATA_SYNC'
   | 'ENABLE_ENCRYPTION'
   | 'FINALIZE'
-  | 'COMPLETED';
+  | 'COMPLETED'
+  | 'REJECTED';
 
 export interface StageStatus {
   stage: WorkspaceStage;
-  state: 'DONE' | 'CURRENT' | 'UPCOMING';
+  state: 'DONE' | 'CURRENT' | 'UPCOMING' | 'REJECTED';
   ready: boolean;
   detail: string;
 }
@@ -37,8 +40,8 @@ export interface WorkspaceRequest {
 export class WorkspaceService {
   constructor(private http: HttpClient) {}
 
-  listWorkspaces(): Observable<WorkspaceSummary[]> {
-    return this.http.get<WorkspaceSummary[]>('/workspaces');
+  listWorkspaces(includeArchived = false): Observable<WorkspaceSummary[]> {
+    return this.http.get<WorkspaceSummary[]>('/workspaces', { params: includeArchived ? { includeArchived } : {} });
   }
 
   createWorkspace(request: WorkspaceRequest): Observable<WorkspaceSummary> {
@@ -51,6 +54,10 @@ export class WorkspaceService {
 
   archiveWorkspace(id: string): Observable<void> {
     return this.http.delete<void>(`/workspaces/${id}`);
+  }
+
+  restoreWorkspace(id: string): Observable<WorkspaceSummary> {
+    return this.http.post<WorkspaceSummary>(`/workspaces/${id}/restore`, {});
   }
 
   getLifecycle(id: string): Observable<WorkspaceLifecycle> {

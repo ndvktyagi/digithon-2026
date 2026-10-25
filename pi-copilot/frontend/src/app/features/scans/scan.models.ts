@@ -38,6 +38,7 @@ export interface Scan {
   completedAt: string | null;
   errorMessage: string | null;
   valuePatternScan: boolean;
+  triggerType: 'MANUAL' | 'LIFECYCLE' | 'SCHEDULED';
   targets: ScanTarget[];
 }
 
@@ -59,6 +60,10 @@ export interface ScanFinding {
   reasoning: string;
   status: string;
   approved: boolean;
+  /** PLAIN PI, or ENCRYPTED when the column already holds ciphertext (not selectable). */
+  encryptionState?: 'PLAIN' | 'ENCRYPTED';
+  /** For plain PI that already has an encrypted twin: the twin's name. */
+  encryptedColumn?: string | null;
 }
 
 export interface CreateScanRequest {
@@ -66,6 +71,8 @@ export interface CreateScanRequest {
   databaseConnectorIds: string[];
   schemas: string | null;
   valuePatternScan: boolean;
+  /** false leaves the scan Initiated; omitted or true starts it immediately. */
+  start?: boolean;
 }
 
 /** User-facing names for scan states. */
@@ -120,6 +127,11 @@ export class ScanService {
 
   create(request: CreateScanRequest): Observable<Scan> {
     return this.http.post<Scan>(this.base, request);
+  }
+
+  /** Starts an Initiated scan, optionally with a new execution order (target ids). */
+  start(id: string, targetOrder?: string[]): Observable<Scan> {
+    return this.http.post<Scan>(`${this.base}/${id}/start`, { targetOrder: targetOrder ?? null });
   }
 
   stop(id: string): Observable<Scan> {

@@ -68,6 +68,24 @@ class PiDetectionRulesTest {
     }
 
     @Test
+    void recognisesEncryptedTwinColumns() {
+        java.util.Set<String> cols = java.util.Set.of("id", "email", "email_enc", "phone_enc", "first_name");
+        assertThat(PiDetectionRules.encryptedTwinBase("email_enc", cols)).isEqualTo("email");
+        assertThat(PiDetectionRules.encryptedTwinBase("EMAIL_ENC", java.util.Set.of("email", "email_enc"))).isEqualTo("EMAIL");
+        // no plain column next to it, so not a twin
+        assertThat(PiDetectionRules.encryptedTwinBase("phone_enc", cols)).isNull();
+        assertThat(PiDetectionRules.encryptedTwinBase("email", cols)).isNull();
+        assertThat(PiDetectionRules.encryptedTwinBase("_enc", java.util.Set.of(""))).isNull();
+    }
+
+    @Test
+    void recognisesCiphertextValues() {
+        assertThat(PiDetectionRules.looksEncrypted(List.of("enc:v1:abc", "enc:v1:def", "enc:v1:ghi", "plain"))).isTrue();
+        assertThat(PiDetectionRules.looksEncrypted(List.of("a@x.io", "enc:v1:def"))).isFalse();
+        assertThat(PiDetectionRules.looksEncrypted(List.of())).isFalse();
+    }
+
+    @Test
     void ignoresFreeTextValues() {
         assertThat(PiDetectionRules.matchValues(List.of("hello world", "pending", "shipped", "n/a"))).isEmpty();
     }

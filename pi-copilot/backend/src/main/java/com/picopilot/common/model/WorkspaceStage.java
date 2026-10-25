@@ -9,13 +9,24 @@ public enum WorkspaceStage {
     SCAN,
     REVIEW,
     ENCRYPTION_SETUP,
+    IMPLEMENTATION,
+    FINAL_REVIEW,
     DATA_SYNC,
     ENABLE_ENCRYPTION,
     FINALIZE,
-    COMPLETED;
+    COMPLETED,
+    /** Terminal: the implementation was rejected in Final Review. */
+    REJECTED;
+
+    public boolean isTerminal() {
+        return this == COMPLETED || this == REJECTED;
+    }
 
     public WorkspaceStage next() {
-        WorkspaceStage[] all = values();
-        return this == COMPLETED ? COMPLETED : all[ordinal() + 1];
+        return switch (this) {
+            case FINALIZE -> COMPLETED;
+            case COMPLETED, REJECTED -> this;
+            default -> values()[ordinal() + 1];
+        };
     }
 }

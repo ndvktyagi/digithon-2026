@@ -30,9 +30,10 @@ public class WorkspaceController {
     private final WorkspaceLifecycleService lifecycleService;
 
     @GetMapping
-    public List<WorkspaceResponse> listWorkspaces(@AuthenticationPrincipal Jwt jwt) {
+    public List<WorkspaceResponse> listWorkspaces(@RequestParam(defaultValue = "false") boolean includeArchived,
+                                                  @AuthenticationPrincipal Jwt jwt) {
         String userId = jwt.getSubject();
-        return workspaceService.listWorkspaces(userId).stream()
+        return workspaceService.listWorkspaces(userId, includeArchived).stream()
             .map(this::toResponse)
             .toList();
     }
@@ -67,6 +68,12 @@ public class WorkspaceController {
     public void archiveWorkspace(@PathVariable UUID workspaceId,
                                  @AuthenticationPrincipal Jwt jwt) {
         workspaceService.archiveWorkspace(workspaceId, jwt.getSubject());
+    }
+
+    @PostMapping("/{workspaceId}/restore")
+    public WorkspaceResponse restoreWorkspace(@PathVariable UUID workspaceId,
+                                              @AuthenticationPrincipal Jwt jwt) {
+        return toResponse(workspaceService.restoreWorkspace(workspaceId, jwt.getSubject()));
     }
 
     @GetMapping("/{workspaceId}/lifecycle")

@@ -2,7 +2,7 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -49,7 +49,7 @@ interface StageView extends StageDefinition {
             </span>
           </div>
           <ol class="track" aria-label="Lifecycle stages">
-            <li *ngFor="let s of stages()" [ngClass]="s.status?.state?.toLowerCase()"
+            <li *ngFor="let s of stages()" [ngClass]="stateClass(s)"
                 [attr.aria-current]="s.status?.state === 'CURRENT' ? 'step' : null"
                 [title]="s.title">
               <span class="track-dot">
@@ -61,23 +61,36 @@ interface StageView extends StageDefinition {
           </ol>
         </section>
 
+        <div class="rejected-banner" *ngIf="lc.currentStage === 'REJECTED'">
+          <mat-icon>block</mat-icon>
+          <div>
+            <strong>Workflow ended: rejected in Final Review.</strong>
+            The review history and pull request are kept in Final Review. Reopen an earlier stage to start again.
+          </div>
+          <a mat-stroked-button routerLink="/final-review" class="banner-action">View review history</a>
+        </div>
+
         <div class="complete-banner" *ngIf="lc.currentStage === 'COMPLETED'">
           <mat-icon>verified_user</mat-icon>
           <div>
             <strong>Lifecycle complete.</strong>
             Personal data in this workspace is encrypted and the plain-text columns have been retired.
           </div>
+          <a mat-stroked-button routerLink="/monitoring" class="banner-action">
+            <mat-icon>monitor_heart</mat-icon> Set up monitoring
+          </a>
         </div>
 
         <section class="stages">
-          <article *ngFor="let s of stages()" class="stage" [ngClass]="s.status?.state?.toLowerCase()">
+          <article *ngFor="let s of stages()" class="stage" [id]="s.stage"
+                   [class.highlight]="fragment() === s.stage" [ngClass]="stateClass(s)">
             <div class="stage-icon"><mat-icon>{{ s.icon }}</mat-icon></div>
 
             <div class="stage-body">
               <div class="stage-head">
                 <h3>{{ s.number }}. {{ s.title }}</h3>
-                <span class="state-pill" [ngClass]="s.status?.state?.toLowerCase()">
-                  {{ stateLabel(s.status?.state) }}
+                <span class="state-pill" [ngClass]="stateClass(s)">
+                  {{ stateLabel(stateClass(s)) }}
                 </span>
               </div>
               <p class="stage-desc">{{ s.description }}</p>
@@ -92,7 +105,7 @@ interface StageView extends StageDefinition {
                   I confirm the duplicate code paths and plain-text database columns have been removed.
                 </mat-checkbox>
                 <div class="stage-actions">
-                  <a mat-stroked-button [routerLink]="s.route">{{ s.actionLabel }}</a>
+                  <a *ngIf="s.route" mat-stroked-button [routerLink]="s.route">{{ s.actionLabel }}</a>
                   <button mat-flat-button color="primary" type="button"
                           [disabled]="!canAdvance(s) || busy()" (click)="advance()">
                     <mat-icon>{{ s.stage === 'FINALIZE' ? 'task_alt' : 'arrow_forward' }}</mat-icon>
@@ -100,12 +113,13 @@ interface StageView extends StageDefinition {
                   </button>
                 </div>
                 <p class="hint" *ngIf="!s.status?.ready">
-                  Use "{{ s.actionLabel }}" to finish this stage, then continue.
+                  <ng-container *ngIf="s.route">Use "{{ s.actionLabel }}" to finish this stage, then continue.</ng-container>
+                  <ng-container *ngIf="!s.route">This stage runs as part of the implementation phase.</ng-container>
                 </p>
               </ng-container>
 
               <div class="stage-actions" *ngIf="s.status?.state === 'DONE'">
-                <a mat-button [routerLink]="s.route">{{ s.actionLabel }}</a>
+                <a *ngIf="s.route" mat-button [routerLink]="s.route">{{ s.actionLabel }}</a>
                 <button mat-button type="button" [disabled]="busy()" (click)="reopen(s.stage)">
                   <mat-icon>undo</mat-icon> Reopen
                 </button>
@@ -152,6 +166,24 @@ interface StageView extends StageDefinition {
       border-radius: var(--pc-radius); background: var(--pc-success-soft); color: #065f46;
     }
     .complete-banner mat-icon { color: var(--pc-success); }
+    .rejected-banner {
+      display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+      border-radius: var(--pc-radius); background: var(--pc-danger-soft); color: #991b1b;
+    }
+    .rejected-banner > div { flex: 1; }
+    .state-pill.rejected { background: var(--pc-danger-soft); color: #b91c1c; }
+    .stage.rejected { border-color: var(--pc-danger); }
+    .track li.rejected .track-dot, .track li.na .track-dot { background: var(--pc-danger); border-color: var(--pc-danger); color: #fff; }
+    .track li.rejected:not(:last-child)::after, .track li.na:not(:last-child)::after { background: var(--pc-danger); }
+    .track li.rejected .track-label, .track li.na .track-label { color: #b91c1c; }
+    .state-pill.na { background: var(--pc-danger-soft); color: #b91c1c; }
+    .stage.na { border-color: #fca5a5; }
+    .stage.na .stage-icon { background: var(--pc-danger-soft); color: #b91c1c; }
+    .complete-banner > div { flex: 1; }
+    .banner-action { flex-shrink: 0; }
+    .stage { scroll-margin-top: calc(var(--pc-header-height) + 16px); }
+    .stage.highlight { animation: flash 1.6s ease-out 1; }
+    @keyframes flash { 0% { box-shadow: 0 0 0 4px var(--pc-primary); } 100% { box-shadow: var(--pc-shadow); } }
 
     .stages { display: flex; flex-direction: column; gap: 12px; }
     .stage {
@@ -198,6 +230,10 @@ export class WorkspaceLifecycleComponent implements OnInit {
   private readonly store = inject(Store);
   private readonly workspaceService = inject(WorkspaceService);
   private readonly notifications = inject(NotificationService);
+  private readonly route = inject(ActivatedRoute);
+
+  /** Stage card targeted from the sidebar, e.g. /lifecycle#DATA_SYNC. */
+  readonly fragment = toSignal(this.route.fragment, { initialValue: null });
 
   private readonly workspaceId = sessionStorage.getItem('workspace_id') ?? '';
 
@@ -227,6 +263,13 @@ export class WorkspaceLifecycleComponent implements OnInit {
   ngOnInit(): void {
     this.store.dispatch(workspaceActions.loadWorkspaces());
     this.load();
+    // Same-page sidebar clicks only change the fragment, so scroll on every change
+    this.route.fragment.subscribe(() => this.scrollToFragment());
+  }
+
+  private scrollToFragment(): void {
+    const id = this.fragment();
+    if (id) setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
 
   load(): void {
@@ -235,6 +278,7 @@ export class WorkspaceLifecycleComponent implements OnInit {
       next: (lc) => {
         this.lifecycle.set(lc);
         this.loading.set(false);
+        this.scrollToFragment();
       },
       error: () => this.loading.set(false),
     });
@@ -263,8 +307,21 @@ export class WorkspaceLifecycleComponent implements OnInit {
     });
   }
 
-  stateLabel(state: string | undefined): string {
-    return state === 'DONE' ? 'Done' : state === 'CURRENT' ? 'In progress' : 'Upcoming';
+  /** CSS class / display state: stages after a rejection in Final Review will not run, so they show as N/A. */
+  stateClass(s: StageView): string {
+    const state = s.status?.state;
+    if (this.lifecycle()?.currentStage === 'REJECTED' && state === 'UPCOMING') return 'na';
+    return state ? state.toLowerCase() : 'upcoming';
+  }
+
+  stateLabel(state: string): string {
+    switch (state) {
+      case 'rejected': return 'Rejected';
+      case 'na': return 'N/A';
+      case 'done': return 'Completed';
+      case 'current': return 'In progress';
+      default: return 'Upcoming';
+    }
   }
 
   private applyUpdate(lc: WorkspaceLifecycle, message: string): void {

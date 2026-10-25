@@ -152,12 +152,26 @@ public class DatabaseConnectorService {
 
     /** Opens a read-only connection with the connector's stored credentials, for scanning. */
     public Connection openConnection(DatabaseConnector connector) throws SQLException {
+        return open(storedRequest(connector));
+    }
+
+    /**
+     * Opens a writable connection with the connector's stored credentials, for schema changes
+     * during encryption implementation. Callers own the transaction (auto-commit is off).
+     */
+    public Connection openWriteConnection(DatabaseConnector connector) throws SQLException {
+        Connection connection = open(storedRequest(connector), false);
+        connection.setAutoCommit(false);
+        return connection;
+    }
+
+    private ConnectionRequest storedRequest(DatabaseConnector connector) {
         String sslMode = connector.getTlsMode() == null ? "prefer" : connector.getTlsMode();
         ConnectionRequest request = new ConnectionRequest(null, connector.getHost(), connector.getPort(),
             connector.getDatabaseName(), sslMode, connector.getUsername(),
             secretCipher.decrypt(connector.getEncryptedPassword()), connector.getSchemaScope());
         validate(request);
-        return open(request);
+        return request;
     }
 
     private DatabaseConnector find(UUID workspaceId, UUID connectorId) {
@@ -212,6 +226,10 @@ public class DatabaseConnectorService {
     }
 
     private Connection open(ConnectionRequest request) throws SQLException {
+        return open(request, true);
+    }
+
+    private Connection open(ConnectionRequest request, boolean readOnly) throws SQLException {
         // Only whitelisted driver properties are set; host and database name are validated
         // above so no extra JDBC URL parameters (e.g. socketFactory) can be injected.
         Properties props = new Properties();
@@ -220,11 +238,11 @@ public class DatabaseConnectorService {
         props.setProperty("sslmode", request.sslMode());
         props.setProperty("connectTimeout", "10");
         props.setProperty("socketTimeout", "30");
-        props.setProperty("readOnly", "true");
+        props.setProperty("readOnly", String.valueOf(readOnly));
         props.setProperty("ApplicationName", "pi-copilot-connector-test");
         String url = "jdbc:postgresql://" + request.host() + ":" + request.port() + "/" + request.databaseName();
         Connection connection = DriverManager.getConnection(url, props);
-        connection.setReadOnly(true);
+        connection.setReadOnly(readOnly);
         return connection;
     }
 

@@ -1,6 +1,8 @@
 package com.picopilot.scanner.service;
 
+import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.model.ScanStatus;
+import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.inventory.model.PiFinding;
 import com.picopilot.inventory.repository.PiFindingRepository;
 import com.picopilot.project.database.DatabaseConnectorService;
@@ -15,6 +17,7 @@ import com.picopilot.scanner.repository.ScanTargetRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Async;
@@ -90,6 +93,7 @@ public class ScanExecutor {
     private final PiFindingRepository findingRepository;
     private final DatabaseConnectorRepository connectorRepository;
     private final DatabaseConnectorService connectorService;
+    private final ApplicationEventPublisher events;
 
     @Async
     public void execute(UUID scanJobId) {
@@ -170,16 +174,37 @@ public class ScanExecutor {
                 if (isCancelled(job.getId())) {
                     throw new CancellationException();
                 }
+                Set<String> names = new HashSet<>();
+                columns.forEach(c -> names.add(c.column().toLowerCase(java.util.Locale.ROOT)));
                 List<PiFinding> findings = new ArrayList<>();
                 for (ColumnInfo column : columns) {
-                    detect(connection, column, sampleValues).ifPresent(match ->
-                        findings.add(toFinding(job, connector, column, keys, match)));
+                    String plainBase = PiDetectionRules.encryptedTwinBase(column.column(), names);
+                    if (plainBase != null) {
+                        // Encrypted twin of a plain column: already protected, never offered for encryption
+                        PiDetectionRules.matchColumn(column.table(), plainBase).ifPresent(match -> {
+                            PiFinding f = toFinding(job, connector, column, keys, match);
+                            markEncrypted(f, "Encrypted copy of \"" + plainBase + "\"; it holds ciphertext, not plain PI.");
+                            findings.add(f);
+                        });
+                        continue;
+                    }
+                    Optional<PiDetectionRules.Match> match = detect(connection, column, sampleValues);
+                    if (match.isEmpty()) continue;
+                    PiFinding f = toFinding(job, connector, column, keys, match.get());
+                    if (sampleValues && PiDetectionRules.isTextType(column.dataType())
+                        && PiDetectionRules.looksEncrypted(sampleOrEmpty(connection, column))) {
+                        markEncrypted(f, "Sampled values are already encrypted (" + PiDetectionRules.CIPHERTEXT_PREFIX + ").");
+                    } else if (names.contains(column.column().toLowerCase(java.util.Locale.ROOT) + PiDetectionRules.ENCRYPTED_SUFFIX)) {
+                        f.setEncryptedColumn(column.column() + PiDetectionRules.ENCRYPTED_SUFFIX);
+                    }
+                    findings.add(f);
                 }
                 findingRepository.saveAll(findings);
+                long plainPi = findings.stream().filter(f -> !PiFinding.ENCRYPTED.equals(f.getEncryptionState())).count();
 
                 target.setTablesScanned(target.getTablesScanned() + 1);
                 target.setColumnsScanned(target.getColumnsScanned() + columns.size());
-                target.setFindingsCount(target.getFindingsCount() + findings.size());
+                target.setFindingsCount(target.getFindingsCount() + (int) plainPi);
                 target = targetRepository.save(target);
             }
         }
@@ -199,6 +224,20 @@ public class ScanExecutor {
             // A table we cannot read (permissions) should not fail the whole database
             log.debug("Could not sample {}.{}.{}: {}", column.schema(), column.table(), column.column(), e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    private static void markEncrypted(PiFinding f, String reasoning) {
+        f.setEncryptionState(PiFinding.ENCRYPTED);
+        f.setSuggestedAction("NONE");
+        f.setReasoning(reasoning);
+    }
+
+    private List<String> sampleOrEmpty(Connection connection, ColumnInfo column) {
+        try {
+            return sample(connection, column);
+        } catch (SQLException e) {
+            return List.of();
         }
     }
 
@@ -296,6 +335,7 @@ public class ScanExecutor {
             job.setFindingsCount(targets.stream().mapToInt(ScanTarget::getFindingsCount).sum());
             Set<String> piTables = new HashSet<>();
             for (PiFinding f : findingRepository.findByScanJobId(scanJobId)) {
+                if (PiFinding.ENCRYPTED.equals(f.getEncryptionState())) continue;
                 piTables.add(f.getDatabaseConnectorId() + "." + f.getDbSchema() + "." + f.getTableName());
             }
             job.setTablesWithPi(piTables.size());
@@ -327,6 +367,10 @@ public class ScanExecutor {
             }
             scanJobRepository.save(job);
             log.info("Scan {} finished: {} ({} findings)", scanJobId, job.getStatus(), job.getFindingsCount());
+            if (job.getStatus() == ScanStatus.COMPLETED) {
+                String actor = job.getCreatedBy() != null ? job.getCreatedBy() : "system";
+                events.publishEvent(new StageWorkCompletedEvent(job.getWorkspaceId(), WorkspaceStage.SCAN, actor));
+            }
         });
     }
 

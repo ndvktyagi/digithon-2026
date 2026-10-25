@@ -10,4 +10,5 @@ import java.util.UUID;
 @Repository
 public interface MigrationPlanRepository extends JpaRepository<MigrationPlan, UUID> {
     List<MigrationPlan> findByProjectId(UUID projectId);
+    boolean existsByProviderConfigId(UUID providerConfigId);
 }

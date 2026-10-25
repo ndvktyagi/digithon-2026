@@ -1,0 +1,83 @@
+/* Merge outcome under the approval banner */
+.merge-note { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 13px; }
+.merge-note mat-icon { font-size: 16px; width: 16px; height: 16px; }
+.merge-note code { font-size: 12px; padding: 0 4px; border-radius: 4px; background: rgba(0, 0, 0, 0.06); }
+.merge-note.failed { color: #b91c1c; }
+
+/* GitHub-style inline review comments for the Final Review diff */
+.diff td.gutter { width: 28px; padding: 0 2px; text-align: center; border-right: none; }
+.gh-add {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px;
+  background: #0969da; color: #fff; font: 700 16px/1 system-ui, sans-serif; cursor: pointer;
+  opacity: 0; transform: scale(0.8); transition: opacity 0.1s, transform 0.1s; vertical-align: middle;
+}
+.diff tr.line:hover .gh-add, .gh-add:focus-visible { opacity: 1; transform: scale(1); }
+.gh-add:hover { transform: scale(1.15) !important; }
+.gh-add.static { opacity: 1; transform: none; width: 18px; height: 18px; font-size: 13px; cursor: default; }
+.diff tr.line.composing td { background: #fff8c5 !important; }
+.comment-row td { padding: 0 !important; white-space: normal !important; background: #f6f8fa; border-top: 1px solid #d0d7de; border-bottom: 1px solid #d0d7de; }
+.gh-thread, .gh-composer {
+  margin: 10px 12px 10px 92px; max-width: 820px; background: #fff; border: 1px solid #d0d7de; border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 14px; color: #1f2328;
+}
+.file-comments .gh-thread, .file-comments .gh-composer { margin: 0; }
+.gh-comment { padding: 12px 14px; background: #f0f6ff; }
+.gh-comment-content { display: flex; gap: 10px; }
+.gh-comment.resolved { background: #f6fef9; }
+.gh-resolved-bar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #1a7f37; font-weight: 600; }
+.gh-resolved-bar mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.gh-comment.resolved .gh-comment-content { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d0d7de; }
+.gh-toggle { margin-left: auto; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; padding: 2px 10px;
+  font: 500 12.5px system-ui, sans-serif; color: #24292f; cursor: pointer; }
+.gh-toggle:hover { background: #f3f4f6; }
+.gh-resolution { display: flex; gap: 6px; margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: #dafbe1;
+  color: #116329; font-size: 13px; line-height: 1.45; }
+.gh-resolution mat-icon { font-size: 16px; width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+.gh-comment.pending { background: #fffbea; }
+.gh-thread { overflow: hidden; }
+.gh-comment + .gh-comment { border-top: 1px solid #d8dee4; }
+.gh-avatar {
+  display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
+  background: var(--pc-primary-soft); color: var(--pc-primary); font-size: 11px; font-weight: 700;
+}
+.gh-comment-main { flex: 1; min-width: 0; }
+.gh-comment-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.gh-comment-head .muted { color: #656d76; }
+.gh-pending { padding: 0 7px; border: 1px solid #d4a72c; border-radius: 999px; color: #7d4e00; background: #fff8c5; font-size: 12px; font-weight: 500; }
+.gh-delete {
+  display: grid; place-items: center; width: 28px; height: 28px; margin-left: auto; padding: 0;
+  border: none; border-radius: 6px; background: transparent; color: #cf222e; cursor: pointer;
+}
+.gh-delete mat-icon { font-size: 18px; width: 18px; height: 18px; }
+.gh-delete:hover { background: #ffebe9; color: #cf222e; }
+.gh-comment-body { margin-top: 6px; white-space: pre-wrap; line-height: 1.5; }
+.gh-tabs { display: flex; align-items: center; gap: 12px; padding: 0 12px; border-bottom: 1px solid #d0d7de; background: #f6f8fa; border-radius: 6px 6px 0 0; }
+.gh-tab { padding: 8px 4px; font-size: 13px; font-weight: 600; }
+.gh-tab.active { border-bottom: 2px solid #fd8c73; margin-bottom: -1px; }
+.gh-hint { margin-left: auto; font-size: 12px; color: #656d76; }
+.gh-composer textarea {
+  display: block; width: calc(100% - 24px); margin: 12px; box-sizing: border-box; min-height: 90px; resize: vertical;
+  padding: 8px 10px; font: inherit; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; outline: none;
+}
+.gh-composer textarea:focus { background: #fff; border-color: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.3); }
+.gh-composer-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+.gh-btn {
+  height: 32px; padding: 0 14px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #24292f;
+  font: 500 14px system-ui, sans-serif; cursor: pointer;
+}
+.gh-btn:hover { background: #eef1f4; }
+.gh-btn-primary { background: #1f883d; border-color: rgba(31, 35, 40, 0.15); color: #fff; }
+.gh-btn-primary:hover { background: #1a7f37; }
+.gh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Round log */
+.log { margin: 0; padding: 12px; max-height: 320px; overflow: auto; border-radius: 10px; background: #0f172a; color: #e2e8f0;
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+
+/* Review rounds panel: the reviewer's inline comments for each round */
+.round-comments { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.round-comments li { padding: 6px 8px; border-radius: 6px; background: #f9fafb; border-left: 3px solid #f59e0b; font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.round-comments li.resolved { border-left-color: #10b981; }
+.round-comments .where { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--pc-text-muted); }
+.round-comments .where .ok { font-size: 13px; width: 13px; height: 13px; color: #10b981; }
+.round-comments .body { display: block; margin-top: 2px; }

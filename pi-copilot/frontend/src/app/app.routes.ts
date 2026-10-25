@@ -69,6 +69,42 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'review',
+        loadComponent: () =>
+          import('./features/scans/scan-list.component').then(
+            (m) => m.ScanListComponent
+          ),
+        data: { mode: 'review' },
+      },
+      {
+        path: 'implementation',
+        loadComponent: () =>
+          import('./features/implementation/implementation.component').then(
+            (m) => m.ImplementationComponent
+          ),
+      },
+      {
+        path: 'final-review',
+        loadComponent: () =>
+          import('./features/final-review/final-review.component').then(
+            (m) => m.FinalReviewComponent
+          ),
+      },
+      {
+        path: 'data-sync',
+        loadComponent: () =>
+          import('./features/data-sync/data-sync.component').then(
+            (m) => m.DataSyncComponent
+          ),
+      },
+      {
+        path: 'monitoring',
+        loadComponent: () =>
+          import('./features/monitoring/monitoring.component').then(
+            (m) => m.MonitoringComponent
+          ),
+      },
+      {
         path: 'scans/new',
         loadComponent: () =>
           import('./features/scans/new-scan.component').then(
@@ -82,20 +118,6 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/scans/scan-detail.component').then(
             (m) => m.ScanDetailComponent
-          ),
-      },
-      {
-        path: 'inventory',
-        loadComponent: () =>
-          import('./features/inventory/inventory.component').then(
-            (m) => m.InventoryComponent
-          ),
-      },
-      {
-        path: 'findings/:findingId',
-        loadComponent: () =>
-          import('./features/finding-detail/finding-detail.component').then(
-            (m) => m.FindingDetailComponent
           ),
       },
       {
@@ -123,8 +145,9 @@ export const routes: Routes = [
             (m) => m.BackfillMonitorComponent
           ),
       },
+      { path: 'feature-flags', redirectTo: 'enable-encryption', pathMatch: 'full' },
       {
-        path: 'feature-flags',
+        path: 'enable-encryption',
         loadComponent: () =>
           import('./features/feature-flags/feature-flags.component').then(
             (m) => m.FeatureFlagsComponent

@@ -82,4 +82,7 @@ public class ScanJob extends TenantAwareEntity {
 
     @Column(name = "approved_at")
     private Instant approvedAt;
+
+    @Column(name = "trigger_type", nullable = false, length = 20)
+    private String triggerType = "MANUAL"; // MANUAL, LIFECYCLE, SCHEDULED
 }

@@ -1,12 +1,13 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterModule } from '@angular/router';
 import { Store } from '@ngrx/store';
-import { map } from 'rxjs/operators';
+import { of } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
+import { ScanService } from '../scans/scan.models';
 import { selectCurrentUser } from '../../store/auth/auth.selectors';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/confidence-bar.component';
@@ -60,15 +61,15 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
     <div class="pc-page">
       <section class="welcome">
         <div class="welcome-text">
-          <span class="eyebrow"><mat-icon>verified_user</mat-icon> Personal Identity Security Pilot</span>
+          <span class="eyebrow"><mat-icon>verified_user</mat-icon> Personal Identity Security Co-Pilot</span>
           <h1>Welcome back{{ (firstName$ | async) ? ', ' + (firstName$ | async) : '' }}</h1>
-          <p>Here's what's happening with your personal information inventory today.</p>
+          <p>Here's what's happening with your personal information findings today.</p>
           <div class="welcome-actions">
             <a mat-flat-button class="hero-primary" routerLink="/scans/new"><mat-icon>add</mat-icon> New Scan</a>
-            <a mat-stroked-button class="hero-secondary" routerLink="/inventory"><mat-icon>inventory_2</mat-icon> View Inventory</a>
+            <a mat-stroked-button class="hero-secondary" [routerLink]="findingsRoute()"><mat-icon>radar</mat-icon> View Findings</a>
           </div>
         </div>
-        <img class="welcome-art" src="brand/pi-banner.jpg" alt="Personal Identity Security Pilot" />
+        <img class="welcome-art" src="brand/pi-banner.jpg" alt="Personal Identity Security Co-Pilot" />
       </section>
 
       <!-- KPI row -->
@@ -91,7 +92,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
               <h2>Findings by Category</h2>
               <p class="pc-muted">Personal-information columns discovered per category</p>
             </div>
-            <a class="link" routerLink="/inventory">Details <mat-icon>arrow_forward</mat-icon></a>
+            <a class="link" [routerLink]="findingsRoute()">Details <mat-icon>arrow_forward</mat-icon></a>
           </div>
           <div class="bars" *ngIf="total() > 0; else noData">
             <div class="bar-row" *ngFor="let c of categoryCounts()"
@@ -141,7 +142,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
         <div class="panel table-panel">
           <div class="panel-head">
             <h2>Recent Findings</h2>
-            <a class="link" routerLink="/inventory">View All <mat-icon>arrow_forward</mat-icon></a>
+            <a class="link" [routerLink]="findingsRoute()">View All <mat-icon>arrow_forward</mat-icon></a>
           </div>
           <div class="table-scroll" *ngIf="recent().length; else noData">
             <table class="simple-table">
@@ -149,7 +150,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
                 <tr><th>Column</th><th>Category</th><th>Confidence</th><th>Status</th></tr>
               </thead>
               <tbody>
-                <tr *ngFor="let f of recent()" [routerLink]="['/findings', f.id]">
+                <tr *ngFor="let f of recent()" [routerLink]="findingsRoute()">
                   <td>
                     <div class="cell-main">
                       <span class="cell-icon"><mat-icon>table_chart</mat-icon></span>
@@ -358,7 +359,7 @@ const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
   `],
 })
 export class DashboardComponent implements OnInit {
-  private readonly http = inject(HttpClient);
+  private readonly scans = inject(ScanService);
   private readonly store = inject(Store);
 
   readonly firstName$ = this.store.select(selectCurrentUser).pipe(
@@ -367,6 +368,12 @@ export class DashboardComponent implements OnInit {
 
   readonly findings = signal<Finding[]>([]);
   readonly total = computed(() => this.findings().length);
+  /** Latest completed scan whose findings the dashboard shows. */
+  readonly latestScanId = signal<string | null>(null);
+  readonly findingsRoute = computed(() => {
+    const id = this.latestScanId();
+    return id ? `/scans/${id}` : '/scans';
+  });
 
   readonly kpis = computed<KpiCard[]>(() => {
     const f = this.findings();
@@ -375,10 +382,10 @@ export class DashboardComponent implements OnInit {
     const pending = f.filter((x) => x.status === 'DISCOVERED').length;
     const tables = new Set(f.map((x) => x.tableName)).size;
     return [
-      { title: 'PI Findings', value: f.length, hint: `across ${tables} tables`, icon: 'fingerprint', tone: 'violet', route: '/inventory' },
-      { title: 'High Confidence', value: high, hint: 'likely personal data', icon: 'verified', tone: 'blue', route: '/inventory' },
-      { title: 'Pending Review', value: pending, hint: 'awaiting a reviewer', icon: 'pending_actions', tone: 'amber', route: '/inventory' },
-      { title: 'Reviewed', value: reviewed, hint: 'confirmed classifications', icon: 'task_alt', tone: 'green', route: '/inventory' },
+      { title: 'PI Findings', value: f.length, hint: `across ${tables} tables`, icon: 'fingerprint', tone: 'violet', route: this.findingsRoute() },
+      { title: 'High Confidence', value: high, hint: 'likely personal data', icon: 'verified', tone: 'blue', route: this.findingsRoute() },
+      { title: 'Pending Review', value: pending, hint: 'awaiting a reviewer', icon: 'pending_actions', tone: 'amber', route: this.findingsRoute() },
+      { title: 'Reviewed', value: reviewed, hint: 'confirmed classifications', icon: 'task_alt', tone: 'green', route: this.findingsRoute() },
     ];
   });
 
@@ -418,8 +425,16 @@ export class DashboardComponent implements OnInit {
   readonly workflow = LIFECYCLE_STAGES;
 
   ngOnInit(): void {
-    this.http.get<{ content?: Finding[] }>('/findings', { params: { page: 0, size: 500 } }).subscribe({
-      next: (response) => this.findings.set(response.content || []),
+    this.scans.list().pipe(
+      switchMap((scans) => {
+        const latest = scans
+          .filter((s) => s.status === 'COMPLETED')
+          .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))[0];
+        this.latestScanId.set(latest?.id ?? null);
+        return latest ? this.scans.findings(latest.id) : of([]);
+      }),
+    ).subscribe({
+      next: (findings) => this.findings.set(findings),
       error: () => this.findings.set([]),
     });
   }

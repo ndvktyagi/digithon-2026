@@ -41,4 +41,6 @@ public interface PiFindingRepository extends JpaRepository<PiFinding, UUID> {
     long countByWorkspaceId(UUID workspaceId);
     long countByWorkspaceIdAndStatus(UUID workspaceId, FindingStatus status);
     List<PiFinding> findByScanJobIdOrderByDbSchemaAscTableNameAscColumnNameAsc(UUID scanJobId);
+    List<PiFinding> findByWorkspaceIdAndApprovedTrue(UUID workspaceId);
+    long countByScanJobIdAndApprovedTrue(UUID scanJobId);
 }

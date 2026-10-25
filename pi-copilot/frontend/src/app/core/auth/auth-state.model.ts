@@ -22,6 +22,8 @@ export interface WorkspaceSummary {
   slug: string;
   description?: string | null;
   lifecycleStage?: string;
+  /** False once archived; archived workspaces are only listed on request. */
+  active?: boolean;
   updatedAt?: string;
 }
 

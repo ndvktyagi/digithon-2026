@@ -1,3 +1,4 @@
+import { workspaceRefreshInterceptor } from './core/api/workspace-refresh.service';
 import { ApplicationConfig, ErrorHandler, inject, provideAppInitializer, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withPreloading, PreloadAllModules } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
@@ -34,6 +35,7 @@ export const appConfig: ApplicationConfig = {
         baseUrlInterceptor,
         authInterceptor,
         errorInterceptor,
+        workspaceRefreshInterceptor,
       ])
     ),
     provideAnimations(),

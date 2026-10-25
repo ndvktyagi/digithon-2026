@@ -26,10 +26,15 @@ public class WorkspaceService {
 
     @Transactional(readOnly = true)
     public List<Workspace> listWorkspaces(String userId) {
+        return listWorkspaces(userId, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Workspace> listWorkspaces(String userId, boolean includeArchived) {
         return memberRepository.findByUserIdAndActiveTrue(userId)
             .stream()
             .map(WorkspaceMember::getWorkspace)
-            .filter(Workspace::isActive)
+            .filter(w -> includeArchived || w.isActive())
             .toList();
     }
 
@@ -82,6 +87,16 @@ public class WorkspaceService {
         workspace.setActive(false);
         workspaceRepository.save(workspace);
         log.info("Workspace {} archived by user {}", workspace.getSlug(), userId);
+    }
+
+    @Transactional
+    public Workspace restoreWorkspace(UUID workspaceId, String userId) {
+        requireRole(workspaceId, userId, UserRole.PLATFORM_ADMIN);
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId.toString()));
+        workspace.setActive(true);
+        log.info("Workspace {} restored by user {}", workspace.getSlug(), userId);
+        return workspaceRepository.save(workspace);
     }
 
     @Transactional

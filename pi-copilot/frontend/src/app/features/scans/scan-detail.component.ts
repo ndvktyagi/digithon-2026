@@ -11,6 +11,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { forkJoin, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
+import { Store } from '@ngrx/store';
+import { workspaceActions } from '../../store/workspace/workspace.actions';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/confidence-bar.component';
@@ -26,7 +28,10 @@ interface TableGroup {
   key: string;
   schema: string;
   table: string;
+  /** Plain PI columns, selectable for encryption. */
   findings: ScanFinding[];
+  /** Columns that already hold ciphertext; shown separately, never selectable. */
+  encrypted: ScanFinding[];
   categories: string[];
 }
 
@@ -52,9 +57,13 @@ interface DatabaseGroup {
         [subtitle]="subtitle()">
         <app-status-badge headerBadge *ngIf="scan() as s" [label]="labels[s.status]"
                           [status]="badge(s.status)"></app-status-badge>
+        <button *ngIf="scan()?.status === 'PENDING'" mat-flat-button color="primary" type="button"
+                (click)="start()" [disabled]="busy()">
+          <mat-icon>play_arrow</mat-icon> Start Scan
+        </button>
         <button *ngIf="scan() && active()" mat-stroked-button color="warn" type="button"
-                (click)="stop()" [disabled]="stopping()">
-          <mat-icon>stop_circle</mat-icon> Stop Scan
+                (click)="stop()" [disabled]="busy()">
+          <mat-icon>stop_circle</mat-icon> {{ scan()?.status === 'PENDING' ? 'Cancel Scan' : 'Stop Scan' }}
         </button>
         <a *ngIf="scan() && !active()" mat-stroked-button routerLink="/scans/new">
           <mat-icon>replay</mat-icon> New Scan
@@ -68,12 +77,18 @@ interface DatabaseGroup {
           <mat-icon>error_outline</mat-icon><span>{{ s.errorMessage }}</span>
         </div>
 
+        <div class="banner info" *ngIf="s.status === 'PENDING'">
+          <mat-icon>schedule</mat-icon>
+          <span>This scan is initiated. Check the execution order below, then press <strong>Start Scan</strong>.</span>
+        </div>
+
         <!-- KPIs -->
         <section class="kpis">
           <div class="kpi"><span class="kpi-label">Databases</span><span class="kpi-value">{{ s.databaseCount }}</span></div>
           <div class="kpi"><span class="kpi-label">Tables scanned</span><span class="kpi-value">{{ s.totalTablesScanned ?? 0 }}</span></div>
           <div class="kpi"><span class="kpi-label">Tables with PI</span><span class="kpi-value accent">{{ tableCount() }}</span></div>
-          <div class="kpi"><span class="kpi-label">PI columns</span><span class="kpi-value accent">{{ findings().length }}</span></div>
+          <div class="kpi"><span class="kpi-label">PI columns</span><span class="kpi-value accent">{{ plainFindings().length }}</span></div>
+          <div class="kpi"><span class="kpi-label">Already encrypted</span><span class="kpi-value enc">{{ encryptedFindings().length }}</span></div>
           <div class="kpi"><span class="kpi-label">High confidence</span><span class="kpi-value">{{ highCount() }}</span></div>
         </section>
 
@@ -84,7 +99,7 @@ interface DatabaseGroup {
             <span class="pc-muted small">{{ duration(s.startedAt, s.completedAt) }}</span>
           </div>
           <ol class="targets">
-            <li *ngFor="let t of s.targets" class="target" [ngClass]="t.status.toLowerCase()">
+            <li *ngFor="let t of targets(); let first = first; let last = last" class="target" [ngClass]="t.status.toLowerCase()">
               <span class="t-icon">
                 <mat-icon *ngIf="t.status === 'COMPLETED'">check_circle</mat-icon>
                 <mat-icon *ngIf="t.status === 'FAILED'">error</mat-icon>
@@ -92,7 +107,7 @@ interface DatabaseGroup {
                 <mat-icon *ngIf="t.status === 'RUNNING'" class="spin">autorenew</mat-icon>
                 <mat-icon *ngIf="t.status === 'PENDING'">schedule</mat-icon>
               </span>
-              <span class="badge">DB-{{ t.executionOrder }}</span>
+              <span class="badge">DB-{{ s.status === 'PENDING' ? targets().indexOf(t) + 1 : t.executionOrder }}</span>
               <span class="t-main">
                 <span class="t-label">{{ t.label }}</span>
                 <span class="t-sub">
@@ -103,12 +118,20 @@ interface DatabaseGroup {
                 </span>
                 <span class="t-error" *ngIf="t.errorMessage">{{ t.errorMessage }}</span>
               </span>
+              <span class="t-move" *ngIf="s.status === 'PENDING' && targets().length > 1">
+                <button mat-icon-button type="button" [disabled]="first || busy()" (click)="moveTarget(t.id, -1)" aria-label="Move up">
+                  <mat-icon>arrow_upward</mat-icon>
+                </button>
+                <button mat-icon-button type="button" [disabled]="last || busy()" (click)="moveTarget(t.id, 1)" aria-label="Move down">
+                  <mat-icon>arrow_downward</mat-icon>
+                </button>
+              </span>
               <span class="t-count" *ngIf="t.findingsCount" matTooltip="PI columns found">
                 {{ t.findingsCount }} <mat-icon>fingerprint</mat-icon>
               </span>
             </li>
           </ol>
-          <mat-progress-bar *ngIf="active()" mode="indeterminate" class="run-bar"></mat-progress-bar>
+          <mat-progress-bar *ngIf="running()" mode="indeterminate" class="run-bar"></mat-progress-bar>
         </section>
 
         <!-- Approval state -->
@@ -152,8 +175,10 @@ interface DatabaseGroup {
 
           <div class="empty" *ngIf="findings().length === 0">
             <mat-icon>{{ active() ? 'hourglass_top' : 'verified_user' }}</mat-icon>
-            <p *ngIf="active()">Scanning… results appear here as each table is analysed.</p>
-            <p *ngIf="!active()">No personal information was detected in the scanned tables.</p>
+            <p *ngIf="running()">Scanning… results appear here as each table is analysed.</p>
+            <p *ngIf="scan()?.status === 'PENDING'">Results appear here once the scan is started.</p>
+            <p *ngIf="!active() && scan()?.status === 'COMPLETED'">No personal information was detected in the scanned tables.</p>
+            <p *ngIf="scan()?.status === 'CANCELLED' || scan()?.status === 'FAILED'">The scan did not find any PI before it ended.</p>
           </div>
 
           <div class="review-tools" *ngIf="reviewing() && findings().length">
@@ -172,7 +197,7 @@ interface DatabaseGroup {
 
             <article *ngFor="let t of db.tables" class="table-card" [class.selected]="tableState(t) !== 'none'">
               <header class="table-head" (click)="toggleExpanded(t.key)">
-                <mat-checkbox *ngIf="reviewing()" (click)="$event.stopPropagation()"
+                <mat-checkbox *ngIf="reviewing() && t.findings.length" (click)="$event.stopPropagation()"
                               [checked]="tableState(t) === 'all'" [indeterminate]="tableState(t) === 'some'"
                               (change)="toggleTable(t, $event.checked)" [attr.aria-label]="'Select table ' + t.table">
                 </mat-checkbox>
@@ -183,7 +208,9 @@ interface DatabaseGroup {
                 <span class="cats">
                   <span class="cat" *ngFor="let c of t.categories">{{ format(c) }}</span>
                 </span>
-                <span class="tbl-count">{{ t.findings.length }} PI column{{ t.findings.length > 1 ? 's' : '' }}</span>
+                <span class="tbl-count">{{ t.findings.length }} PI column{{ t.findings.length === 1 ? '' : 's' }}
+                  <ng-container *ngIf="t.encrypted.length"> · <span class="enc-count"><mat-icon>lock</mat-icon>{{ t.encrypted.length }} encrypted</span></ng-container>
+                </span>
                 <mat-icon class="chev" [class.open]="isExpanded(t.key)">expand_more</mat-icon>
               </header>
 
@@ -206,6 +233,9 @@ interface DatabaseGroup {
                         <span class="key" *ngIf="f.primaryKey" matTooltip="Primary key">PK</span>
                         <span class="key" *ngIf="f.foreignKey" [matTooltip]="'References ' + f.foreignKeyReference">FK</span>
                         <mat-icon class="approved-icon sm" *ngIf="!reviewing() && f.approved" matTooltip="Approved for encryption">lock</mat-icon>
+                        <span class="twin" *ngIf="f.encryptedColumn" [matTooltip]="'This column already has an encrypted copy: ' + f.encryptedColumn">
+                          <mat-icon>enhanced_encryption</mat-icon>{{ f.encryptedColumn }}
+                        </span>
                       </td>
                       <td class="muted">{{ f.dataType }}{{ f.nullable ? '' : ' · not null' }}</td>
                       <td><span class="cat">{{ format(f.candidateCategory) }}</span></td>
@@ -219,6 +249,20 @@ interface DatabaseGroup {
                     </tr>
                   </tbody>
                 </table>
+                <div class="enc-section" *ngIf="t.encrypted.length">
+                  <div class="enc-head"><mat-icon>lock</mat-icon> Already encrypted <span>· holds ciphertext, not selectable</span></div>
+                  <table class="col-table enc-table">
+                    <tbody>
+                      <tr *ngFor="let f of t.encrypted">
+                        <td *ngIf="reviewing()" class="cb"><mat-icon class="lock-cell">lock</mat-icon></td>
+                        <td><span class="col-name">{{ f.columnName }}</span> <span class="enc-badge">Encrypted</span></td>
+                        <td class="muted">{{ f.dataType }}</td>
+                        <td><span class="cat">{{ format(f.candidateCategory) }}</span></td>
+                        <td class="why">{{ f.reasoning }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </article>
           </div>
@@ -257,7 +301,21 @@ interface DatabaseGroup {
     .banner.success mat-icon { color: var(--pc-success); }
     .banner.info { background: var(--pc-primary-soft); color: var(--pc-primary-600); }
 
-    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+    .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+    .kpi-value.enc { color: #0369a1; }
+    .enc-count { display: inline-flex; align-items: center; gap: 2px; color: #0369a1; }
+    .enc-count mat-icon { font-size: 14px; width: 14px; height: 14px; }
+    .twin { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+      background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .twin mat-icon { font-size: 13px; width: 13px; height: 13px; }
+    .enc-section { border-top: 1px solid var(--pc-border); background: #f8fbff; }
+    .enc-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.04em; color: #0369a1; }
+    .enc-head mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .enc-head span { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--pc-text-muted); }
+    .enc-table td { color: var(--pc-text-muted); }
+    .enc-badge { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 600; }
+    .lock-cell { font-size: 16px; width: 16px; height: 16px; color: #94a3b8; }
     .kpi {
       display: flex; flex-direction: column; gap: 6px; padding: 16px 18px;
       background: var(--pc-surface); border: 1px solid var(--pc-border);
@@ -296,6 +354,7 @@ interface DatabaseGroup {
     .t-label { font-weight: 600; overflow-wrap: anywhere; }
     .t-sub { font-size: 12.5px; color: var(--pc-text-muted); }
     .t-error { font-size: 12.5px; color: #b91c1c; }
+    .t-move { display: flex; }
     .t-count { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--pc-primary); }
     .t-count mat-icon { font-size: 18px; width: 18px; height: 18px; }
     .run-bar { margin-top: 12px; }
@@ -384,7 +443,7 @@ interface DatabaseGroup {
     .approve-summary strong { color: var(--pc-text); }
     .comment { width: 280px; max-width: 100%; }
 
-    @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 600px) {
       .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .approve-summary { width: 100%; }
@@ -396,23 +455,34 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly scanService = inject(ScanService);
   private readonly notifications = inject(NotificationService);
+  private readonly store = inject(Store);
   private pollSub?: Subscription;
+  private lastStatus: Scan['status'] | null = null;
   private readonly scanId = this.route.snapshot.paramMap.get('scanId') ?? '';
 
   readonly labels = SCAN_STATUS_LABELS;
   readonly scan = signal<Scan | null>(null);
   readonly findings = signal<ScanFinding[]>([]);
   readonly selected = signal<Set<string>>(new Set());
-  readonly expanded = signal<Set<string>>(new Set());
+  /** Tables the user has minimised; every table starts open. */
+  readonly collapsed = signal<Set<string>>(new Set());
   readonly search = signal('');
   readonly category = signal<string | null>(null);
   readonly editing = signal(false);
-  readonly stopping = signal(false);
+  readonly busy = signal(false);
+  /** Execution order being edited for an Initiated scan (target ids). */
+  readonly pendingOrder = signal<string[] | null>(null);
   readonly approving = signal(false);
   comment = '';
-  private expandedInitialised = false;
 
   readonly active = computed(() => !!this.scan() && isScanActive(this.scan()!.status));
+  readonly running = computed(() => this.scan()?.status === 'RUNNING');
+
+  readonly targets = computed(() => {
+    const targets = this.scan()?.targets ?? [];
+    const order = this.pendingOrder();
+    return order ? order.map((id) => targets.find((t) => t.id === id)!).filter(Boolean) : targets;
+  });
   readonly reviewing = computed(() => {
     const s = this.scan();
     return !!s && s.status === 'COMPLETED' && (s.approvalState !== 'APPROVED' || this.editing());
@@ -426,8 +496,11 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
       + (s.valuePatternScan ? ' · value sampling on' : '');
   });
 
-  readonly highCount = computed(() => this.findings().filter((f) => f.confidence === 'HIGH').length);
-  readonly tableCount = computed(() => new Set(this.findings().map((f) => this.tableKey(f))).size);
+  /** Plain PI, the only columns that can be selected for encryption. */
+  readonly plainFindings = computed(() => this.findings().filter((f) => f.encryptionState !== 'ENCRYPTED'));
+  readonly encryptedFindings = computed(() => this.findings().filter((f) => f.encryptionState === 'ENCRYPTED'));
+  readonly highCount = computed(() => this.plainFindings().filter((f) => f.confidence === 'HIGH').length);
+  readonly tableCount = computed(() => new Set(this.plainFindings().map((f) => this.tableKey(f))).size);
   readonly approvedColumns = computed(() => this.findings().filter((f) => f.approved).length);
   readonly approvedTables = computed(() =>
     new Set(this.findings().filter((f) => f.approved).map((f) => this.tableKey(f))).size);
@@ -474,6 +547,12 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    this.poll();
+  }
+
+  /** Polls while the scan is processing; initiated and finished scans need no polling. */
+  private poll(): void {
+    this.pollSub?.unsubscribe();
     this.pollSub = timer(0, POLL_MS)
       .pipe(switchMap(() => forkJoin([this.scanService.get(this.scanId), this.scanService.findings(this.scanId)])))
       .subscribe({
@@ -489,16 +568,15 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   private apply(scan: Scan, findings: ScanFinding[]): void {
     this.scan.set(scan);
     this.findings.set(findings);
-    if (!isScanActive(scan.status)) {
+    if (scan.status !== 'RUNNING') {
       this.pollSub?.unsubscribe();
       this.resetSelection();
     }
-    // Small results start expanded; large ones start collapsed so the table list stays scannable
-    if (!this.expandedInitialised && findings.length && !isScanActive(scan.status)) {
-      const keys = new Set(findings.map((f) => this.tableKey(f)));
-      if (keys.size <= 6) this.expanded.set(keys);
-      this.expandedInitialised = true;
+    if (this.lastStatus === 'RUNNING' && scan.status === 'COMPLETED') {
+      // The lifecycle advances to Review & Approve on completion; refresh the stage chip
+      this.store.dispatch(workspaceActions.loadWorkspaces());
     }
+    this.lastStatus = scan.status;
   }
 
   private resetSelection(): void {
@@ -506,12 +584,14 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   }
 
   private toTableGroup(key: string, findings: ScanFinding[]): TableGroup {
+    const plain = findings.filter((f) => f.encryptionState !== 'ENCRYPTED');
     return {
       key,
       schema: findings[0].dbSchema,
       table: findings[0].tableName,
-      findings,
-      categories: [...new Set(findings.map((f) => f.candidateCategory))],
+      findings: plain,
+      encrypted: findings.filter((f) => f.encryptionState === 'ENCRYPTED'),
+      categories: [...new Set(plain.map((f) => f.candidateCategory))],
     };
   }
 
@@ -542,19 +622,19 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   }
 
   selectAll(all: boolean): void {
-    this.selected.set(all ? new Set(this.findings().map((f) => f.id)) : new Set());
+    this.selected.set(all ? new Set(this.plainFindings().map((f) => f.id)) : new Set());
   }
 
   selectHighConfidence(): void {
-    this.selected.set(new Set(this.findings().filter((f) => f.confidence === 'HIGH').map((f) => f.id)));
+    this.selected.set(new Set(this.plainFindings().filter((f) => f.confidence === 'HIGH').map((f) => f.id)));
   }
 
   isExpanded(key: string): boolean {
-    return this.expanded().has(key);
+    return !this.collapsed().has(key);
   }
 
   toggleExpanded(key: string): void {
-    this.expanded.update((s) => {
+    this.collapsed.update((s) => {
       const next = new Set(s);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -562,7 +642,7 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   }
 
   expandAll(open: boolean): void {
-    this.expanded.set(open ? new Set(this.findings().map((f) => this.tableKey(f))) : new Set());
+    this.collapsed.set(open ? new Set() : new Set(this.findings().map((f) => this.tableKey(f))));
   }
 
   startEditing(): void {
@@ -594,15 +674,38 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
     });
   }
 
+  moveTarget(id: string, delta: number): void {
+    const ids = this.targets().map((t) => t.id);
+    const i = ids.indexOf(id);
+    [ids[i], ids[i + delta]] = [ids[i + delta], ids[i]];
+    this.pendingOrder.set(ids);
+  }
+
+  start(): void {
+    this.busy.set(true);
+    this.scanService.start(this.scanId, this.pendingOrder() ?? undefined).subscribe({
+      next: (scan) => {
+        this.busy.set(false);
+        this.pendingOrder.set(null);
+        this.scan.set(scan);
+        this.lastStatus = scan.status;
+        this.notifications.showSuccess('Scan started');
+        this.poll();
+      },
+      error: () => this.busy.set(false),
+    });
+  }
+
   stop(): void {
-    this.stopping.set(true);
+    this.busy.set(true);
     this.scanService.stop(this.scanId).subscribe({
       next: (scan) => {
-        this.stopping.set(false);
+        this.busy.set(false);
+        this.pendingOrder.set(null);
         this.scan.set(scan);
-        this.notifications.showSuccess('Scan stopped');
+        this.notifications.showSuccess(scan.startedAt ? 'Scan stopped' : 'Scan cancelled');
       },
-      error: () => this.stopping.set(false),
+      error: () => this.busy.set(false),
     });
   }
 

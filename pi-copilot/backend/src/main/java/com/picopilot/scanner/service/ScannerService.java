@@ -1,6 +1,7 @@
 package com.picopilot.scanner.service;
 
 import com.picopilot.audit.service.AuditService;
+import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.exception.InvalidStateException;
 import com.picopilot.common.exception.ResourceNotFoundException;
 import com.picopilot.common.exception.ValidationException;
@@ -9,6 +10,7 @@ import com.picopilot.common.model.ReviewDecision;
 import com.picopilot.common.model.ScanStatus;
 import com.picopilot.common.model.Severity;
 import com.picopilot.common.model.UserRole;
+import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.identity.service.WorkspaceService;
 import com.picopilot.inventory.model.FindingReview;
 import com.picopilot.inventory.model.PiFinding;
@@ -24,6 +26,7 @@ import com.picopilot.scanner.repository.ScanScopeRepository;
 import com.picopilot.scanner.repository.ScanTargetRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -31,11 +34,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -47,6 +53,10 @@ public class ScannerService {
 
     public static final String APPROVAL_PENDING = "PENDING";
     public static final String APPROVAL_APPROVED = "APPROVED";
+    public static final String TRIGGER_MANUAL = "MANUAL";
+    public static final String TRIGGER_LIFECYCLE = "LIFECYCLE";
+    public static final String TRIGGER_SCHEDULED = "SCHEDULED";
+    public static final String SYSTEM_ACTOR = "system";
 
     private final ScanJobRepository scanJobRepository;
     private final ScanScopeRepository scanScopeRepository;
@@ -57,13 +67,15 @@ public class ScannerService {
     private final WorkspaceService workspaceService;
     private final AuditService auditService;
     private final ScanExecutor scanExecutor;
+    private final ApplicationEventPublisher events;
 
     /**
      * @param databaseConnectorIds databases to scan, in execution order
      * @param schemas              optional comma-separated schemas; overrides each connector's schema scope
+     * @param start                false leaves the scan Initiated (PENDING); null or true starts it now
      */
     public record CreateScanRequest(String name, List<UUID> databaseConnectorIds,
-                                    String schemas, boolean valuePatternScan) {}
+                                    String schemas, boolean valuePatternScan, Boolean start) {}
 
     public record TargetView(UUID id, UUID connectorId, String connectorType, String label, int executionOrder,
                              String schemas, ScanStatus status, int tablesScanned, int columnsScanned,
@@ -73,11 +85,15 @@ public class ScannerService {
                            String approvedBy, Instant approvedAt, int databaseCount, Integer totalTablesScanned,
                            Integer tablesWithPi, Integer findingsCount, Instant createdAt, String createdBy,
                            Instant startedAt, Instant completedAt, String errorMessage,
-                           boolean valuePatternScan, List<TargetView> targets) {}
+                           boolean valuePatternScan, String triggerType, List<TargetView> targets) {}
 
     @Transactional
-    public ScanView createAndStart(UUID workspaceId, CreateScanRequest request, String userId) {
+    public ScanView create(UUID workspaceId, CreateScanRequest request, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
+        return createInternal(workspaceId, request, userId, TRIGGER_MANUAL);
+    }
+
+    private ScanView createInternal(UUID workspaceId, CreateScanRequest request, String userId, String trigger) {
         List<UUID> ids = request.databaseConnectorIds() == null ? List.of() : request.databaseConnectorIds();
         if (ids.isEmpty()) {
             throw new ValidationException("Select at least one database to scan");
@@ -103,9 +119,11 @@ public class ScannerService {
         job.setName(request.name() == null || request.name().isBlank()
             ? "Database scan " + LocalDate.now() : request.name().trim());
         job.setScanType("DATABASE");
+        job.setTriggerType(trigger);
         job.setAnalysisEngine("RULES_ONLY");
-        job.setStatus(ScanStatus.RUNNING);
-        job.setStartedAt(Instant.now());
+        boolean startNow = request.start() == null || request.start();
+        job.setStatus(startNow ? ScanStatus.RUNNING : ScanStatus.PENDING);
+        job.setStartedAt(startNow ? Instant.now() : null);
         job.setTotalTablesScanned(0);
         job.setFindingsCount(0);
         job.setTablesWithPi(0);
@@ -132,17 +150,96 @@ public class ScannerService {
         }
 
         UUID jobId = job.getId();
-        // Start only after commit so the worker sees the job and its targets
+        if (startNow) {
+            executeAfterCommit(jobId);
+        }
+        audit(workspaceId, userId, startNow ? "SCAN_STARTED" : "SCAN_INITIATED", job,
+            Map.of("databases", connectors.size()));
+        log.info("Scan {} {} by {} across {} database(s)", jobId, startNow ? "started" : "initiated",
+            userId, connectors.size());
+        return toView(job, targetRepository.findByScanJobIdOrderByExecutionOrderAsc(jobId));
+    }
+
+    /**
+     * Creates an Initiated scan over every verified database connector (oldest first),
+     * used when the Connect stage completes. Empty if the workspace has no verified database.
+     */
+    @Transactional
+    public Optional<ScanView> createInitiated(UUID workspaceId, String userId) {
+        List<UUID> ids = verifiedConnectorIds(workspaceId);
+        if (ids.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(createInternal(workspaceId,
+            new CreateScanRequest("Initial scan " + LocalDate.now(), ids, null, false, false), userId, TRIGGER_LIFECYCLE));
+    }
+
+    /**
+     * Starts a monitoring scan over every verified database, on behalf of the scheduler
+     * (no user, so no membership check). Empty if the workspace has no verified database.
+     */
+    @Transactional
+    public Optional<ScanView> createScheduled(UUID workspaceId, boolean valuePatternScan, String actor) {
+        List<UUID> ids = verifiedConnectorIds(workspaceId);
+        if (ids.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(createInternal(workspaceId,
+            new CreateScanRequest("Monitoring scan " + LocalDate.now(), ids, null, valuePatternScan, true),
+            actor, TRIGGER_SCHEDULED));
+    }
+
+    /** Verified database connectors of the workspace, oldest first (the default execution order). */
+    private List<UUID> verifiedConnectorIds(UUID workspaceId) {
+        List<UUID> ids = new ArrayList<>(dbConnectorRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream()
+            .filter(DatabaseConnector::isVerified)
+            .map(DatabaseConnector::getId)
+            .toList());
+        Collections.reverse(ids);
+        return ids;
+    }
+
+    /**
+     * Starts an Initiated scan.
+     *
+     * @param targetOrder optional new execution order, as the scan's target ids
+     */
+    @Transactional
+    public ScanView start(UUID workspaceId, UUID scanJobId, List<UUID> targetOrder, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        ScanJob job = find(workspaceId, scanJobId);
+        if (job.getStatus() != ScanStatus.PENDING) {
+            throw new InvalidStateException("Only an initiated scan can be started (scan is " + job.getStatus() + ")");
+        }
+        List<ScanTarget> targets = targetRepository.findByScanJobIdOrderByExecutionOrderAsc(scanJobId);
+        if (targetOrder != null && !targetOrder.isEmpty()) {
+            Map<UUID, ScanTarget> byId = targets.stream().collect(Collectors.toMap(ScanTarget::getId, t -> t));
+            if (targetOrder.size() != targets.size() || !byId.keySet().containsAll(targetOrder)) {
+                throw new ValidationException("The execution order must list each database of the scan exactly once");
+            }
+            int order = 1;
+            for (UUID id : targetOrder) {
+                byId.get(id).setExecutionOrder(order++);
+            }
+            targetRepository.saveAll(targets);
+        }
+        job.setStatus(ScanStatus.RUNNING);
+        job.setStartedAt(Instant.now());
+        job = scanJobRepository.save(job);
+        executeAfterCommit(scanJobId);
+        audit(workspaceId, userId, "SCAN_STARTED", job, Map.of("databases", targets.size()));
+        log.info("Scan {} started by {}", scanJobId, userId);
+        return toView(job, targetRepository.findByScanJobIdOrderByExecutionOrderAsc(scanJobId));
+    }
+
+    /** Runs the scan only after commit so the worker sees the job and its targets. */
+    private void executeAfterCommit(UUID jobId) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 scanExecutor.execute(jobId);
             }
         });
-
-        audit(workspaceId, userId, "SCAN_STARTED", job, Map.of("databases", connectors.size()));
-        log.info("Scan {} created by {} across {} database(s)", jobId, userId, connectors.size());
-        return toView(job, targetRepository.findByScanJobIdOrderByExecutionOrderAsc(jobId));
     }
 
     @Transactional(readOnly = true)
@@ -210,6 +307,12 @@ public class ScannerService {
             throw new ValidationException("Some selected findings do not belong to this scan");
         }
 
+        boolean selectsEncrypted = findings.stream()
+            .anyMatch(f -> selected.contains(f.getId()) && PiFinding.ENCRYPTED.equals(f.getEncryptionState()));
+        if (selectsEncrypted) {
+            throw new ValidationException("Already encrypted columns cannot be selected; select plain PI columns only");
+        }
+
         Instant now = Instant.now();
         Set<String> approvedTables = new HashSet<>();
         for (PiFinding f : findings) {
@@ -243,6 +346,7 @@ public class ScannerService {
         metadata.put("approvedColumns", selected.size());
         metadata.put("approvedTables", approvedTables.size());
         audit(workspaceId, userId, "SCAN_APPROVED", job, metadata);
+        events.publishEvent(new StageWorkCompletedEvent(workspaceId, WorkspaceStage.REVIEW, userId));
         log.info("Scan {} approved by {}: {} columns in {} tables", scanJobId, userId,
             selected.size(), approvedTables.size());
         return toView(job, targetRepository.findByScanJobIdOrderByExecutionOrderAsc(scanJobId));
@@ -276,6 +380,6 @@ public class ScannerService {
         return new ScanView(j.getId(), j.getName(), j.getStatus(), j.getScanType(), j.getApprovalState(),
             j.getApprovedBy(), j.getApprovedAt(), targets.size(), j.getTotalTablesScanned(), j.getTablesWithPi(),
             j.getFindingsCount(), j.getCreatedAt(), j.getCreatedBy(), j.getStartedAt(), j.getCompletedAt(),
-            j.getErrorMessage(), valueScan, targetViews);
+            j.getErrorMessage(), valueScan, j.getTriggerType(), targetViews);
     }
 }

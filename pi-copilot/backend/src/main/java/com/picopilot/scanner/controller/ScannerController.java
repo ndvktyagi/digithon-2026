@@ -20,13 +20,13 @@ public class ScannerController {
 
     private final ScannerService scannerService;
 
-    /** Creates a scan over the given databases (in execution order) and starts it immediately. */
+    /** Creates a scan over the given databases (in execution order); starts it unless start=false. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ScanView createScan(@PathVariable UUID workspaceId,
                                @RequestBody CreateScanRequest request,
                                @AuthenticationPrincipal Jwt jwt) {
-        return scannerService.createAndStart(workspaceId, request, jwt.getSubject());
+        return scannerService.create(workspaceId, request, jwt.getSubject());
     }
 
     @GetMapping
@@ -40,6 +40,16 @@ public class ScannerController {
                             @PathVariable UUID scanId,
                             @AuthenticationPrincipal Jwt jwt) {
         return scannerService.getScan(workspaceId, scanId, jwt.getSubject());
+    }
+
+    /** Starts an Initiated scan, optionally with a new execution order of its targets. */
+    @PostMapping("/{scanId}/start")
+    public ScanView startScan(@PathVariable UUID workspaceId,
+                              @PathVariable UUID scanId,
+                              @RequestBody(required = false) StartScanRequest request,
+                              @AuthenticationPrincipal Jwt jwt) {
+        return scannerService.start(workspaceId, scanId,
+            request == null ? null : request.targetOrder(), jwt.getSubject());
     }
 
     @PostMapping("/{scanId}/cancel")
@@ -66,4 +76,6 @@ public class ScannerController {
     }
 
     public record ApproveScanRequest(List<UUID> findingIds, String comment) {}
+
+    public record StartScanRequest(List<UUID> targetOrder) {}
 }

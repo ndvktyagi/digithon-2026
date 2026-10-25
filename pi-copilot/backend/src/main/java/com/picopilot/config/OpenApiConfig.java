@@ -20,7 +20,7 @@ public class OpenApiConfig {
         return new OpenAPI()
             .info(new Info()
                 .title("PI Security Copilot API")
-                .description("REST API for PI discovery, inventory, encryption migration, and audit")
+                .description("REST API for PI discovery, encryption migration, and audit")
                 .version("1.0.0")
                 .contact(new Contact()
                     .name("PI Copilot Team")

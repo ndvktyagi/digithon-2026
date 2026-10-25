@@ -56,7 +56,7 @@ import { PageHeaderComponent } from '../../shared/components/page-header/page-he
 
           <div *ngIf="scan()?.status === 'COMPLETED'" class="complete-msg">
             <mat-icon>check_circle</mat-icon>
-            <span>Scan completed successfully. <a routerLink="/inventory">View findings</a></span>
+            <span>Scan completed successfully. <a routerLink="/scans">View findings</a></span>
           </div>
 
           <div *ngIf="scan()?.status === 'FAILED'" class="error-msg">

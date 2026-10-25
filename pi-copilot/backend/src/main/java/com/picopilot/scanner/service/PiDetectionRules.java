@@ -107,6 +107,32 @@ public final class PiDetectionRules {
         return Optional.empty();
     }
 
+    /** Suffix PI Co-Pilot gives the encrypted twin of a plain column. */
+    public static final String ENCRYPTED_SUFFIX = "_enc";
+    /** Prefix of values written by PI Co-Pilot's field encryption (AES-256-GCM). */
+    public static final String CIPHERTEXT_PREFIX = "enc:v1:";
+
+    /**
+     * The plain column an encrypted twin belongs to: "email_enc" -> "email" when the table also has
+     * "email"; otherwise null.
+     *
+     * @param tableColumns lower-case names of every column in the table
+     */
+    public static String encryptedTwinBase(String column, java.util.Set<String> tableColumns) {
+        String lower = column.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(ENCRYPTED_SUFFIX) || lower.length() == ENCRYPTED_SUFFIX.length()) return null;
+        String base = lower.substring(0, lower.length() - ENCRYPTED_SUFFIX.length());
+        return tableColumns.contains(base) ? column.substring(0, base.length()) : null;
+    }
+
+    /** True when most sampled non-null values are PI Co-Pilot ciphertext. */
+    public static boolean looksEncrypted(List<String> samples) {
+        List<String> values = samples.stream().filter(v -> v != null && !v.isBlank()).toList();
+        if (values.isEmpty()) return false;
+        long cipher = values.stream().filter(v -> v.startsWith(CIPHERTEXT_PREFIX)).count();
+        return (double) cipher / values.size() >= VALUE_MATCH_THRESHOLD;
+    }
+
     public static boolean isTextType(String dataType) {
         String t = dataType.toLowerCase(Locale.ROOT);
         return t.contains("char") || t.equals("text") || t.equals("citext");

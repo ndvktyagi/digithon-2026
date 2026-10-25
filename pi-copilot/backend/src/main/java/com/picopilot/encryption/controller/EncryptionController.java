@@ -34,6 +34,29 @@ public class EncryptionController {
         return encryptionService.createProvider(workspaceId, config, jwt.getSubject());
     }
 
+    @GetMapping("/workspaces/{workspaceId}/encryption-providers/{providerId}")
+    public EncryptionProviderConfig getProvider(@PathVariable UUID workspaceId,
+                                                  @PathVariable UUID providerId,
+                                                  @AuthenticationPrincipal Jwt jwt) {
+        return encryptionService.getProvider(workspaceId, providerId, jwt.getSubject());
+    }
+
+    @PutMapping("/workspaces/{workspaceId}/encryption-providers/{providerId}")
+    public EncryptionProviderConfig updateProvider(@PathVariable UUID workspaceId,
+                                                     @PathVariable UUID providerId,
+                                                     @Valid @RequestBody EncryptionProviderConfig config,
+                                                     @AuthenticationPrincipal Jwt jwt) {
+        return encryptionService.updateProvider(workspaceId, providerId, config, jwt.getSubject());
+    }
+
+    @DeleteMapping("/workspaces/{workspaceId}/encryption-providers/{providerId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteProvider(@PathVariable UUID workspaceId,
+                                 @PathVariable UUID providerId,
+                                 @AuthenticationPrincipal Jwt jwt) {
+        encryptionService.deleteProvider(workspaceId, providerId, jwt.getSubject());
+    }
+
     @PostMapping("/workspaces/{workspaceId}/encryption-providers/{providerId}/validate")
     public EncryptionProviderConfig validateProvider(@PathVariable UUID workspaceId,
                                                        @PathVariable UUID providerId,
