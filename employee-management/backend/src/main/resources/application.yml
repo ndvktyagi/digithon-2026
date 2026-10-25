@@ -18,3 +18,8 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /v3/api-docs
+
+pi:
+  encryption:
+    # Base64 AES-256 key shared with PI Co-Pilot's LOCAL_DEV provider (development only)
+    local-key: ${PI_LOCAL_ENCRYPTION_KEY:qTBIwDHqob6znFvvalLRtC33wZH04wPeuI/nVdZnnOE=}

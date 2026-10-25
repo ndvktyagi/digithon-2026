@@ -13,7 +13,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     /** Fetch all employees joined with department using native SQL. */
     @Query(value = """
-        SELECT e.id, e.first_name, e.last_name, e.email, e.phone,
+        SELECT e.id, CASE WHEN e.first_name_enc IS NOT NULL AND EXISTS (SELECT 1 FROM pi_feature_flag pi_f WHERE pi_f.flag_name = 'encrypted-read' AND pi_f.enabled) THEN e.first_name_enc ELSE e.first_name END AS first_name, e.last_name, e.email, e.phone,
                d.id AS department_id, d.name AS department_name, e.joining_date
         FROM employees e
         INNER JOIN departments d ON e.department_id = d.id
@@ -22,7 +22,7 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
     /** Fetch a single employee by ID joined with department using native SQL. */
     @Query(value = """
-        SELECT e.id, e.first_name, e.last_name, e.email, e.phone,
+        SELECT e.id, CASE WHEN e.first_name_enc IS NOT NULL AND EXISTS (SELECT 1 FROM pi_feature_flag pi_f WHERE pi_f.flag_name = 'encrypted-read' AND pi_f.enabled) THEN e.first_name_enc ELSE e.first_name END AS first_name, e.last_name, e.email, e.phone,
                d.id AS department_id, d.name AS department_name, e.joining_date
         FROM employees e
         INNER JOIN departments d ON e.department_id = d.id
