@@ -1,0 +1,17 @@
+package com.picopilot.common.model;
+
+public enum FindingStatus {
+    DISCOVERED,
+    REVIEWED,
+    PLAN_APPROVED,
+    SCHEMA_ADDED,
+    COMPATIBILITY_DEPLOYED,
+    BACKFILL_RUNNING,
+    BACKFILL_VERIFIED,
+    ENCRYPTED_READ_READY,
+    ENCRYPTED_READ_ENABLED,
+    RETIREMENT_APPROVED,
+    RETIRED,
+    FAILED,
+    ROLLBACK
+}

@@ -1,0 +1,49 @@
+package com.picopilot.project.github;
+
+import com.picopilot.project.github.GitHubDtos.*;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1/workspaces/{workspaceId}/github")
+@RequiredArgsConstructor
+public class GitHubConnectorController {
+
+    private final GitHubConnectorService service;
+
+    /** POST (not GET) so the token travels in the body, never in URLs or access logs. */
+    @PostMapping("/repositories")
+    public ConnectResponse repositories(@PathVariable UUID workspaceId,
+                                        @Valid @RequestBody ConnectRequest request,
+                                        @AuthenticationPrincipal Jwt jwt) {
+        return service.connect(workspaceId, request, jwt.getSubject());
+    }
+
+    @PostMapping("/branches")
+    public List<BranchSummary> branches(@PathVariable UUID workspaceId,
+                                        @Valid @RequestBody BranchesRequest request,
+                                        @AuthenticationPrincipal Jwt jwt) {
+        return service.listBranches(workspaceId, request, jwt.getSubject());
+    }
+
+    @PostMapping("/connectors")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ConnectorSummary save(@PathVariable UUID workspaceId,
+                                 @Valid @RequestBody SaveConnectorRequest request,
+                                 @AuthenticationPrincipal Jwt jwt) {
+        return service.save(workspaceId, request, jwt.getSubject());
+    }
+
+    @GetMapping("/connectors")
+    public List<ConnectorSummary> list(@PathVariable UUID workspaceId,
+                                       @AuthenticationPrincipal Jwt jwt) {
+        return service.list(workspaceId, jwt.getSubject());
+    }
+}

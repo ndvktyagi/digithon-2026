@@ -1,0 +1,146 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  error:
+    include-message: always
+    include-binding-errors: always
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: pi-copilot
+  datasource:
+    url: jdbc:postgresql://localhost:5432/picopilot
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 50
+          fetch_size: 100
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/picopilot}
+          jwk-set-uri: ${OIDC_JWK_URI:http://localhost:8180/realms/picopilot/protocol/openid-connect/certs}
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: true
+    default-property-inclusion: non_null
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterAccess=600s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+picopilot:
+  connectors:
+    # Allow connectors to reach localhost/private networks. Keep true for local dev only;
+    # the multi-tenant SaaS deployment must set CONNECTORS_ALLOW_PRIVATE_HOSTS=false.
+    allow-private-hosts: ${CONNECTORS_ALLOW_PRIVATE_HOSTS:true}
+  security:
+    # AES-GCM key material for connector credentials (GitHub tokens, DB passwords)
+    connector-secret-key: ${CONNECTOR_SECRET_KEY:local-dev-only-connector-key-change-me-0123456789}
+    # Self-issued login (local admin + Google Sign-In) for running without Keycloak.
+    # Set LOCAL_AUTH_ENABLED=false in production.
+    local-auth:
+      enabled: ${LOCAL_AUTH_ENABLED:true}
+      admin-username: ${LOCAL_ADMIN_USERNAME:admin}
+      admin-password: ${LOCAL_ADMIN_PASSWORD:admin@123}
+      jwt-secret: ${LOCAL_AUTH_JWT_SECRET:local-dev-only-secret-change-me-0123456789}
+      token-ttl-minutes: 480
+      # OAuth 2.0 Web client ID from Google Cloud Console; empty hides the Google button
+      google-client-id: ${GOOGLE_CLIENT_ID:}
+      # Google accounts that get PLATFORM_ADMIN (comma-separated)
+      admin-emails: ${LOCAL_ADMIN_EMAILS:}
+    cors:
+      allowed-origins: ${CORS_ORIGINS:http://localhost:*}
+      allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+      allowed-headers: Authorization,Content-Type,X-Request-ID,X-Correlation-ID,X-Workspace-Id
+      max-age: 3600
+  scan:
+    worker:
+      thread-pool-size: 4
+      max-queue-size: 100
+      batch-size: 500
+      timeout-minutes: 60
+  backfill:
+    batch-size: 1000
+    max-retries: 3
+    retry-delay-ms: 5000
+    worker-threads: 2
+  ai:
+    default-model: rules-only
+    timeout-seconds: 30
+    enabled: false
+  encryption:
+    default-mode: AEAD
+    algorithm: AES/GCM/NoPadding
+    key-size: 256
+    envelope-enabled: true
+  github:
+    app-id: ${GITHUB_APP_ID:}
+    app-installation-id: ${GITHUB_INSTALLATION_ID:}
+    private-key-ref: ${GITHUB_PRIVATE_KEY_REF:}
+    api-base-url: https://api.github.com
+  audit:
+    retention-days: 2555
+  feature-flags:
+    default-rollback-window-hours: 72
+
+logging:
+  level:
+    root: INFO
+    com.picopilot: DEBUG
+    org.springframework.security: INFO
+    org.flywaydb: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"
+  structured:
+    format:
+      console: logstash

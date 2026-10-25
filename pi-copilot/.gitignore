@@ -1,0 +1,56 @@
+# Commit source code only. Build output, dependencies, IDE files and secrets stay local.
+
+# ---------- Backend (Maven / Java) ----------
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+hs_err_pid*.log
+replay_pid*.log
+
+# ---------- Frontend (Angular / Node) ----------
+frontend/node_modules/
+frontend/dist/
+frontend/out-tsc/
+frontend/.angular/
+frontend/coverage/
+frontend/src/app/core/api/generated/
+npm-debug.log*
+yarn-error.log*
+
+# ---------- IDE / editor ----------
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.vscode/
+!.vscode/extensions.json
+.classpath
+.project
+.settings/
+.factorypath
+*.swp
+*~
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Secrets / local config ----------
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.properties
+*.pem
+*.key
+*.p12
+*.jks
+
+# ---------- Logs / temp ----------
+*.log
+logs/
+tmp/

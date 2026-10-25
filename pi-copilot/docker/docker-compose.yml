@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: picopilot-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-picopilot}
+      POSTGRES_USER: ${POSTGRES_USER:-picopilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-picopilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: picopilot-keycloak
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-picopilot}_keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-picopilot}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    command: start-dev --import-realm
+    volumes:
+      - ./docker/keycloak/import:/opt/keycloak/data/import
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
