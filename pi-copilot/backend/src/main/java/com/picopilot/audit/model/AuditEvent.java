@@ -7,6 +7,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -55,6 +57,8 @@ public class AuditEvent extends BaseEntity {
 
     @Column(name = "job_id")
     private UUID jobId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "event_metadata", columnDefinition = "jsonb")
     private String eventMetadata;

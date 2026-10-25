@@ -12,18 +12,20 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { HttpClient } from '@angular/common/http';
 import { NotificationService } from '../../core/notifications/notification.service';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-scan-wizard',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule, MatCardModule, MatFormFieldModule,
+    PageHeaderComponent, CommonModule, ReactiveFormsModule, MatCardModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatIconModule,
     MatStepperModule, MatCheckboxModule, MatSlideToggleModule,
   ],
   template: `
-    <div class="wizard-page">
-      <h1>New Scan</h1>
+    <div class="pc-page wizard-page">
+      <app-page-header title="New Scan"
+        subtitle="Choose a project and scope, then start PI discovery."></app-page-header>
 
       <mat-card>
         <mat-card-content>
@@ -134,8 +136,6 @@ import { NotificationService } from '../../core/notifications/notification.servi
     </div>
   `,
   styles: [`
-    .wizard-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
     .full-width { width: 100%; margin-bottom: 12px; }
     .toggle { margin-bottom: 16px; display: block; }
     .step-actions {
@@ -156,11 +156,12 @@ import { NotificationService } from '../../core/notifications/notification.servi
       align-items: center;
       gap: 8px;
       padding: 12px;
-      background: #e3f2fd;
+      background: var(--pc-primary-soft);
       border-radius: 8px;
-      color: #1565c0;
+      color: var(--pc-primary);
       font-size: 14px;
     }
+    @media (max-width: 600px) { .summary-grid { grid-template-columns: 1fr; } }
   `],
 })
 export class ScanWizardComponent {

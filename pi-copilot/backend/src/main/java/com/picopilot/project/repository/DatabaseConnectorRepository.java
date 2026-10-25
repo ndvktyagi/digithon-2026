@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface DatabaseConnectorRepository extends JpaRepository<DatabaseConnector, UUID> {
     List<DatabaseConnector> findByProjectId(UUID projectId);
     List<DatabaseConnector> findByWorkspaceIdOrderByCreatedAtDesc(UUID workspaceId);
+
+    long countByWorkspaceIdAndVerifiedTrue(UUID workspaceId);
 }

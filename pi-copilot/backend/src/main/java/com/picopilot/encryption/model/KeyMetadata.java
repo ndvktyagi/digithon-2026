@@ -4,6 +4,8 @@ import com.picopilot.common.model.TenantAwareEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -39,6 +41,8 @@ public class KeyMetadata extends TenantAwareEntity {
 
     @Column(name = "retired_at")
     private Instant retiredAt;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "rotation_policy", columnDefinition = "jsonb")
     private String rotationPolicy;

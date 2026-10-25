@@ -40,4 +40,35 @@ public class DatabaseConnectorController {
                                        @AuthenticationPrincipal Jwt jwt) {
         return service.list(workspaceId, jwt.getSubject());
     }
+
+    @GetMapping("/connectors/{connectorId}")
+    public ConnectorSummary get(@PathVariable UUID workspaceId,
+                                @PathVariable UUID connectorId,
+                                @AuthenticationPrincipal Jwt jwt) {
+        return service.get(workspaceId, connectorId, jwt.getSubject());
+    }
+
+    @PostMapping("/connectors/{connectorId}/test")
+    public TestResult testExisting(@PathVariable UUID workspaceId,
+                                   @PathVariable UUID connectorId,
+                                   @Valid @RequestBody ConnectionRequest request,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return service.testExisting(workspaceId, connectorId, request, jwt.getSubject());
+    }
+
+    @PutMapping("/connectors/{connectorId}")
+    public ConnectorSummary update(@PathVariable UUID workspaceId,
+                                   @PathVariable UUID connectorId,
+                                   @Valid @RequestBody ConnectionRequest request,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return service.update(workspaceId, connectorId, request, jwt.getSubject());
+    }
+
+    @DeleteMapping("/connectors/{connectorId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID workspaceId,
+                       @PathVariable UUID connectorId,
+                       @AuthenticationPrincipal Jwt jwt) {
+        service.delete(workspaceId, connectorId, jwt.getSubject());
+    }
 }

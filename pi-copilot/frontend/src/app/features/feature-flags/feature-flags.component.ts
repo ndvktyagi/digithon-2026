@@ -8,18 +8,19 @@ import { MatListModule } from '@angular/material/list';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-feature-flags',
   standalone: true,
   imports: [
-    CommonModule, MatCardModule, MatSlideToggleModule, MatButtonModule,
+    PageHeaderComponent, CommonModule, MatCardModule, MatSlideToggleModule, MatButtonModule,
     MatIconModule, MatListModule, MatExpansionModule, StatusBadgeComponent,
   ],
   template: `
-    <div class="flags-page">
-      <h1>Feature Flags</h1>
-      <p class="subtitle">Control encrypted read cutover and rollback for migration fields.</p>
+    <div class="pc-page flags-page">
+      <app-page-header title="Feature Flags"
+        subtitle="Control encrypted read cutover and rollback for migration fields."></app-page-header>
 
       <mat-card *ngFor="let flag of flags()" class="flag-card">
         <mat-card-header>
@@ -71,11 +72,9 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .flags-page { padding: 24px; }
-    h1 { margin: 0 0 8px; }
-    .subtitle { color: #757575; margin: 0 0 24px; }
-    .flag-card { margin-bottom: 16px; }
+    .flag-card { margin-bottom: 0; }
     .flag-details {
+      flex-wrap: wrap;
       display: flex;
       gap: 24px;
       margin: 12px 0;
@@ -90,7 +89,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
       border-radius: 8px;
       margin-top: 12px;
     }
-    .empty-text { color: #757575; padding: 24px 0; text-align: center; }
+    .empty-text { color: var(--pc-text-muted); padding: 24px 0; text-align: center; }
   `],
 })
 export class FeatureFlagsComponent {

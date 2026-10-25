@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface EncryptionProviderConfigRepository extends JpaRepository<EncryptionProviderConfig, UUID> {
     List<EncryptionProviderConfig> findByWorkspaceId(UUID workspaceId);
     List<EncryptionProviderConfig> findByWorkspaceIdAndStatus(UUID workspaceId, String status);
+
+    long countByWorkspaceIdAndVerifiedTrue(UUID workspaceId);
 }

@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.picopilot.common.exception.ResourceNotFoundException;
 import com.picopilot.common.exception.ValidationException;
 
 import java.time.Instant;
@@ -98,20 +99,12 @@ public class GitHubConnectorService {
 
         // Re-verify access server-side; never trust the client's repo/branch selection.
         RepositorySummary repo = toRepository(github.get(apiBase, request.token(), repoPath));
-        List<String> includePaths = validateIncludePaths(apiBase, request);
+        List<String> includePaths = validateIncludePaths(apiBase, request.token(), request.owner(),
+            request.repo(), request.branch(), request.includePaths());
 
-        ApplicationProject project = projectRepository.findByWorkspaceId(workspaceId).stream()
-            .filter(p -> p.getName().equalsIgnoreCase(repo.fullName()))
-            .findFirst()
-            .orElseGet(() -> {
-                ApplicationProject p = new ApplicationProject();
-                p.setWorkspaceId(workspaceId);
-                p.setName(repo.fullName());
-                p.setDescription(truncate(repo.description(), 500));
-                return p;
-            });
-        project.setDefaultBranch(request.branch());
-        project = projectRepository.save(project);
+        ApplicationProject project = resolveProject(workspaceId,
+            isBlank(request.projectName()) ? repo.fullName() : request.projectName().trim(),
+            repo.description(), request.branch());
 
         RepositoryConnector connector = connectorRepository
             .findByProjectIdAndRepositoryName(project.getId(), repo.name())
@@ -124,7 +117,7 @@ public class GitHubConnectorService {
         connector.setRepositoryName(repo.name());
         connector.setApiBaseUrl(apiBase);
         connector.setBranch(request.branch());
-        connector.setIncludePaths(includePaths.isEmpty() ? null : String.join("\n", includePaths));
+        connector.setIncludePaths(joinPaths(includePaths));
         connector.setEncryptedToken(secretCipher.encrypt(request.token()));
         connector.setVerified(true);
         connector.setStatus("ACTIVE");
@@ -135,6 +128,61 @@ public class GitHubConnectorService {
         return toSummary(connector);
     }
 
+    @Transactional
+    public ConnectorSummary update(UUID workspaceId, UUID connectorId, UpdateConnectorRequest request, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        RepositoryConnector connector = find(workspaceId, connectorId);
+        String token = isBlank(request.token()) ? storedToken(connector) : request.token();
+        String apiBase = connector.getApiBaseUrl();
+        String owner = connector.getRepositoryOwner();
+        String name = connector.getRepositoryName();
+
+        // Verifies the token still reaches the repository and the branch/folders exist.
+        github.get(apiBase, token, "/repos/" + encode(owner) + "/" + encode(name));
+        List<String> includePaths = validateIncludePaths(apiBase, token, owner, name,
+            request.branch(), request.includePaths());
+
+        String projectName = isBlank(request.projectName())
+            ? connector.getProject().getName() : request.projectName().trim();
+        connector.setProject(resolveProject(workspaceId, projectName, null, request.branch()));
+        connector.setBranch(request.branch());
+        connector.setIncludePaths(joinPaths(includePaths));
+        connector.setEncryptedToken(secretCipher.encrypt(token));
+        connector.setVerified(true);
+        connector = connectorRepository.save(connector);
+
+        log.info("User {} updated GitHub connector {}", userId, connectorId);
+        return toSummary(connector);
+    }
+
+    @Transactional(readOnly = true)
+    public ConnectorSummary get(UUID workspaceId, UUID connectorId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        return toSummary(find(workspaceId, connectorId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<BranchSummary> listBranches(UUID workspaceId, UUID connectorId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        RepositoryConnector c = find(workspaceId, connectorId);
+        return listBranches(workspaceId, new BranchesRequest(c.getApiBaseUrl(), storedToken(c),
+            c.getRepositoryOwner(), c.getRepositoryName()), userId);
+    }
+
+    @Transactional(readOnly = true)
+    public FoldersResponse listFolders(UUID workspaceId, UUID connectorId, String branch, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        RepositoryConnector c = find(workspaceId, connectorId);
+        return fetchFolders(c.getApiBaseUrl(), storedToken(c), c.getRepositoryOwner(), c.getRepositoryName(), branch);
+    }
+
+    @Transactional
+    public void delete(UUID workspaceId, UUID connectorId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        connectorRepository.delete(find(workspaceId, connectorId));
+        log.info("User {} deleted GitHub connector {}", userId, connectorId);
+    }
+
     @Transactional(readOnly = true)
     public List<ConnectorSummary> list(UUID workspaceId, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
@@ -143,9 +191,38 @@ public class GitHubConnectorService {
             .toList();
     }
 
+    private RepositoryConnector find(UUID workspaceId, UUID connectorId) {
+        return connectorRepository.findById(connectorId)
+            .filter(c -> workspaceId.equals(c.getWorkspaceId()))
+            .orElseThrow(() -> new ResourceNotFoundException("RepositoryConnector", connectorId.toString()));
+    }
+
+    private String storedToken(RepositoryConnector connector) {
+        if (isBlank(connector.getEncryptedToken())) {
+            throw new ValidationException("No access token is stored for this connector; enter a new token");
+        }
+        return secretCipher.decrypt(connector.getEncryptedToken());
+    }
+
+    private ApplicationProject resolveProject(UUID workspaceId, String name, String description, String branch) {
+        ApplicationProject project = projectRepository.findByWorkspaceId(workspaceId).stream()
+            .filter(p -> p.getName().equalsIgnoreCase(name))
+            .findFirst()
+            .orElseGet(() -> {
+                ApplicationProject p = new ApplicationProject();
+                p.setWorkspaceId(workspaceId);
+                p.setName(name);
+                p.setDescription(truncate(description, 500));
+                return p;
+            });
+        project.setDefaultBranch(branch);
+        return projectRepository.save(project);
+    }
+
     /** Every selected folder must exist on the branch; nested selections collapse into their parent. */
-    private List<String> validateIncludePaths(String apiBase, SaveConnectorRequest request) {
-        List<String> requested = request.includePaths() == null ? List.of() : request.includePaths().stream()
+    private List<String> validateIncludePaths(String apiBase, String token, String owner, String repo,
+                                              String branch, List<String> paths) {
+        List<String> requested = paths == null ? List.of() : paths.stream()
             .map(p -> p.trim().replaceAll("^/+|/+$", ""))
             .filter(p -> !p.isEmpty())
             .distinct()
@@ -155,7 +232,7 @@ public class GitHubConnectorService {
             throw new ValidationException("Select at most " + MAX_INCLUDE_PATHS + " folders");
         }
         // Also verifies the branch is accessible
-        FoldersResponse folders = fetchFolders(apiBase, request.token(), request.owner(), request.repo(), request.branch());
+        FoldersResponse folders = fetchFolders(apiBase, token, owner, repo, branch);
         if (requested.isEmpty()) {
             return requested;
         }
@@ -163,7 +240,7 @@ public class GitHubConnectorService {
         List<String> result = new ArrayList<>();
         for (String path : requested) {
             if (path.contains("..") || (!known.contains(path) && !folders.truncated())) {
-                throw new ValidationException("Folder not found on branch " + request.branch() + ": " + path);
+                throw new ValidationException("Folder not found on branch " + branch + ": " + path);
             }
             if (result.stream().noneMatch(parent -> path.startsWith(parent + "/"))) {
                 result.add(path);
@@ -191,6 +268,14 @@ public class GitHubConnectorService {
             c.getApiBaseUrl(),
             c.getIncludePaths() == null || c.getIncludePaths().isBlank() ? List.of() : List.of(c.getIncludePaths().split("\n")),
             c.isVerified(), c.getStatus(), c.getCreatedAt());
+    }
+
+    private static String joinPaths(List<String> paths) {
+        return paths.isEmpty() ? null : String.join("\n", paths);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static String truncate(String value, int max) {

@@ -10,4 +10,7 @@ import java.util.UUID;
 @Repository
 public interface BackfillJobRepository extends JpaRepository<BackfillJob, UUID> {
     List<BackfillJob> findByProjectIdOrderByCreatedAtDesc(UUID projectId);
+
+    long countByWorkspaceId(UUID workspaceId);
+    long countByWorkspaceIdAndStatus(UUID workspaceId, String status);
 }

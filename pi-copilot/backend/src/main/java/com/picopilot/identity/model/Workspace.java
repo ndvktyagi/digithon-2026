@@ -1,7 +1,7 @@
 package com.picopilot.identity.model;
 
 import com.picopilot.common.model.BaseEntity;
-import com.picopilot.common.model.UserRole;
+import com.picopilot.common.model.WorkspaceStage;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -13,8 +13,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.time.Instant;
 
 @Entity
 @Table(name = "workspace")
@@ -33,4 +32,11 @@ public class Workspace extends BaseEntity {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_stage", nullable = false, length = 30)
+    private WorkspaceStage lifecycleStage = WorkspaceStage.CONNECT;
+
+    @Column(name = "stage_updated_at")
+    private Instant stageUpdatedAt;
 }

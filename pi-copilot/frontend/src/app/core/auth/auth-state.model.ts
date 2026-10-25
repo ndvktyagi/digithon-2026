@@ -20,6 +20,9 @@ export interface WorkspaceSummary {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
+  lifecycleStage?: string;
+  updatedAt?: string;
 }
 
 export interface TokenSet {

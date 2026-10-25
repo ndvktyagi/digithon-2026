@@ -12,10 +12,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/confidence-bar.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 interface PiFinding {
   id: string;
@@ -35,14 +36,15 @@ interface PiFinding {
   selector: 'app-inventory',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, MatCardModule, MatTableModule, MatPaginatorModule,
+    PageHeaderComponent, CommonModule, FormsModule, MatCardModule, MatTableModule, MatPaginatorModule,
     MatSortModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatIconModule,
     MatButtonModule, MatChipsModule, MatTooltipModule, RouterModule,
     StatusBadgeComponent, ConfidenceBarComponent,
   ],
   template: `
-    <div class="inventory-page">
-      <h1>PI Inventory</h1>
+    <div class="pc-page inventory-page">
+      <app-page-header title="PI Inventory"
+        subtitle="Personal-information fields discovered across your data sources."></app-page-header>
 
       <!-- Filters -->
       <mat-card class="filters-card">
@@ -168,9 +170,7 @@ interface PiFinding {
     </div>
   `,
   styles: [`
-    .inventory-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
-    .filters-card { margin-bottom: 16px; }
+    .filters-card .filter-row { padding-top: 4px; }
     .filter-row {
       display: flex;
       flex-wrap: wrap;
@@ -178,12 +178,13 @@ interface PiFinding {
       align-items: center;
     }
     .search-field { flex: 1; min-width: 200px; }
-    .finding-link { color: #1565c0; text-decoration: none; font-weight: 500; cursor: pointer; }
+    .finding-link { color: var(--pc-primary); text-decoration: none; font-weight: 500; cursor: pointer; }
     .finding-link:hover { text-decoration: underline; }
   `],
 })
 export class InventoryComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly route = inject(ActivatedRoute);
 
   readonly findings = signal<PiFinding[]>([]);
   readonly totalCount = signal(0);
@@ -200,6 +201,7 @@ export class InventoryComponent implements OnInit {
   displayedColumns = ['schema', 'table', 'column', 'category', 'confidence', 'status', 'actions'];
 
   ngOnInit(): void {
+    this.search = this.route.snapshot.queryParamMap.get('search') ?? '';
     this.loadFindings();
   }
 

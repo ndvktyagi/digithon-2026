@@ -37,4 +37,8 @@ public interface PiFindingRepository extends JpaRepository<PiFinding, UUID> {
                                      @Param("table") String table,
                                      @Param("search") String search,
                                      Pageable pageable);
+
+    long countByWorkspaceId(UUID workspaceId);
+    long countByWorkspaceIdAndStatus(UUID workspaceId, FindingStatus status);
+    List<PiFinding> findByScanJobIdOrderByDbSchemaAscTableNameAscColumnNameAsc(UUID scanJobId);
 }

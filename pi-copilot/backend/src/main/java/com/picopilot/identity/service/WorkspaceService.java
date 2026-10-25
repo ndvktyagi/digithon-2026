@@ -29,6 +29,7 @@ public class WorkspaceService {
         return memberRepository.findByUserIdAndActiveTrue(userId)
             .stream()
             .map(WorkspaceMember::getWorkspace)
+            .filter(Workspace::isActive)
             .toList();
     }
 
@@ -36,6 +37,9 @@ public class WorkspaceService {
     public Workspace createWorkspace(Workspace workspace, String userId) {
         if (workspaceRepository.existsBySlug(workspace.getSlug())) {
             throw new ValidationException("Workspace slug already exists: " + workspace.getSlug());
+        }
+        if (workspaceRepository.existsByName(workspace.getName())) {
+            throw new ValidationException("Workspace name already exists: " + workspace.getName());
         }
         Workspace saved = workspaceRepository.save(workspace);
 
@@ -55,6 +59,29 @@ public class WorkspaceService {
         requireMembership(workspaceId, userId);
         return workspaceRepository.findById(workspaceId)
             .orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId.toString()));
+    }
+
+    @Transactional
+    public Workspace updateWorkspace(UUID workspaceId, String name, String description, String userId) {
+        requireRole(workspaceId, userId, UserRole.PLATFORM_ADMIN);
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId.toString()));
+        if (!workspace.getName().equals(name) && workspaceRepository.existsByName(name)) {
+            throw new ValidationException("Workspace name already exists: " + name);
+        }
+        workspace.setName(name);
+        workspace.setDescription(description);
+        return workspaceRepository.save(workspace);
+    }
+
+    @Transactional
+    public void archiveWorkspace(UUID workspaceId, String userId) {
+        requireRole(workspaceId, userId, UserRole.PLATFORM_ADMIN);
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Workspace", workspaceId.toString()));
+        workspace.setActive(false);
+        workspaceRepository.save(workspace);
+        log.info("Workspace {} archived by user {}", workspace.getSlug(), userId);
     }
 
     @Transactional

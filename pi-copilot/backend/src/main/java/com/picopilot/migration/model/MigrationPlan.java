@@ -7,6 +7,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -38,8 +40,12 @@ public class MigrationPlan extends TenantAwareEntity {
     @Column(name = "rollback_ddl", columnDefinition = "text")
     private String rollbackDdl;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+
     @Column(name = "impacted_tables", columnDefinition = "jsonb")
     private String impactedTables;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "impacted_queries", columnDefinition = "jsonb")
     private String impactedQueries;

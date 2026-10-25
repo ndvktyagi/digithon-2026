@@ -1,45 +1,45 @@
 @use '@angular/material' as mat;
 
-// Custom theme colors
+// Brand palette (violet), matched to the modern dashboard design language
 $primary-palette: mat.m2-define-palette((
-  50: #e3f2fd,
-  100: #bbdefb,
-  200: #90caf9,
-  300: #64b5f6,
-  400: #42a5f5,
-  500: #1565c0,
-  600: #1e88e5,
-  700: #1976d2,
-  800: #1565c0,
-  900: #0d47a1,
-  contrast: (50: #000, 100: #000, 200: #000, 300: #000, 400: #000, 500: #fff, 600: #fff, 700: #fff, 800: #fff, 900: #fff),
+  50: #f1edff,
+  100: #e2dbff,
+  200: #c7b9ff,
+  300: #a993ff,
+  400: #8b6cff,
+  500: #5b3df5,
+  600: #5233e6,
+  700: #4527cc,
+  800: #3a20ad,
+  900: #2c1885,
+  contrast: (50: #000, 100: #000, 200: #000, 300: #000, 400: #fff, 500: #fff, 600: #fff, 700: #fff, 800: #fff, 900: #fff),
 ));
 
 $accent-palette: mat.m2-define-palette((
-  50: #e0f2f1,
-  100: #b2dfdb,
-  200: #80cbc4,
-  300: #4db6ac,
-  400: #26a69a,
-  500: #00897b,
-  600: #00897b,
-  700: #00796b,
-  800: #00695c,
-  900: #004d40,
+  50: #e6f7ff,
+  100: #bfeaff,
+  200: #8fdbff,
+  300: #5ccbff,
+  400: #2fbdfb,
+  500: #0ea5e9,
+  600: #0b94d2,
+  700: #0880b7,
+  800: #066c9b,
+  900: #044e72,
   contrast: (50: #000, 100: #000, 200: #000, 300: #000, 400: #fff, 500: #fff, 600: #fff, 700: #fff, 800: #fff, 900: #fff),
 ));
 
 $warn-palette: mat.m2-define-palette((
-  50: #ffebee,
-  100: #ffcdd2,
-  200: #ef9a9a,
-  300: #e57373,
-  400: #ef5350,
-  500: #c62828,
-  600: #e53935,
-  700: #d32f2f,
-  800: #c62828,
-  900: #b71c1c,
+  50: #fef2f2,
+  100: #fee2e2,
+  200: #fecaca,
+  300: #fca5a5,
+  400: #f87171,
+  500: #ef4444,
+  600: #dc2626,
+  700: #b91c1c,
+  800: #991b1b,
+  900: #7f1d1d,
   contrast: (50: #000, 100: #000, 200: #000, 300: #000, 400: #fff, 500: #fff, 600: #fff, 700: #fff, 800: #fff, 900: #fff),
 ));
 
@@ -52,12 +52,48 @@ $pi-copilot-theme: mat.m2-define-light-theme((
   typography: mat.m2-define-typography-config(
     $font-family: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   ),
-  density: 0,
+  density: -1,
 ));
 
 @include mat.elevation-classes();
 @include mat.app-background();
 @include mat.all-component-themes($pi-copilot-theme);
+
+// Design tokens
+:root {
+  --pc-primary: #5b3df5;
+  --pc-primary-600: #4527cc;
+  --pc-primary-soft: #f1edff;
+  --pc-accent: #0ea5e9;
+  --pc-success: #10b981;
+  --pc-success-soft: #ecfdf5;
+  --pc-warning: #f59e0b;
+  --pc-warning-soft: #fffbeb;
+  --pc-danger: #ef4444;
+  --pc-danger-soft: #fef2f2;
+  --pc-info-soft: #eff6ff;
+
+  --pc-bg: #f5f6fa;
+  --pc-surface: #ffffff;
+  --pc-border: #eceef3;
+  --pc-text: #111827;
+  --pc-text-muted: #6b7280;
+  --pc-text-subtle: #9ca3af;
+
+  --pc-radius: 14px;
+  --pc-radius-sm: 10px;
+  --pc-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.04);
+  --pc-shadow-hover: 0 8px 24px rgba(16, 24, 40, 0.08);
+
+  --pc-sidebar-width: 248px;
+  --pc-sidebar-collapsed: 76px;
+  --pc-header-height: 68px;
+  --pc-gutter: 24px;
+}
+
+@media (max-width: 768px) {
+  :root { --pc-gutter: 16px; }
+}
 
 // Global styles
 * {
@@ -70,9 +106,119 @@ html, body {
   height: 100%;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
-  color: #212121;
-  background: #f5f5f5;
+  color: var(--pc-text);
+  background: var(--pc-bg);
+  -webkit-font-smoothing: antialiased;
 }
+
+h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; color: var(--pc-text); }
+h2 { font-size: 18px; font-weight: 600; color: var(--pc-text); }
+h3 { font-size: 15px; font-weight: 600; color: var(--pc-text); }
+a { color: var(--pc-primary); }
+
+// Material component overrides — keeps every feature page on the same visual system
+.mat-mdc-card {
+  --mat-card-elevated-container-shape: var(--pc-radius);
+  --mdc-elevated-card-container-shape: var(--pc-radius);
+  border-radius: var(--pc-radius) !important;
+  border: 1px solid var(--pc-border);
+  box-shadow: var(--pc-shadow) !important;
+  background: var(--pc-surface);
+}
+.mat-mdc-card-header { padding: 20px 20px 0 !important; }
+.mat-mdc-card-content { padding: 0 20px !important; }
+.mat-mdc-card-content:first-child { padding-top: 20px !important; }
+.mat-mdc-card-content:last-child { padding-bottom: 20px !important; }
+.mat-mdc-card-header + .mat-mdc-card-content,
+.mat-mdc-card-header + .mat-mdc-progress-bar + .mat-mdc-card-content { padding-top: 16px !important; }
+.mat-mdc-card-actions { padding: 12px 20px 20px !important; gap: 8px; }
+mat-icon.mat-mdc-card-avatar {
+  display: grid !important;
+  place-items: center;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 12px !important;
+  background: var(--pc-primary-soft);
+  color: var(--pc-primary);
+  font-size: 22px;
+}
+.mat-mdc-card-title {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: var(--pc-text);
+  mat-icon { color: var(--pc-primary); }
+}
+.mat-mdc-card-subtitle { color: var(--pc-text-muted) !important; font-size: 13px !important; }
+
+.mat-mdc-button-base { border-radius: var(--pc-radius-sm) !important; }
+.mat-mdc-unelevated-button, .mat-mdc-raised-button, .mat-mdc-outlined-button, .mat-mdc-button {
+  --mdc-filled-button-container-shape: var(--pc-radius-sm);
+  --mdc-protected-button-container-shape: var(--pc-radius-sm);
+  --mdc-outlined-button-container-shape: var(--pc-radius-sm);
+  --mdc-text-button-container-shape: var(--pc-radius-sm);
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+}
+.mat-mdc-raised-button:not(:disabled) { box-shadow: 0 1px 2px rgba(91, 61, 245, 0.24) !important; }
+.mat-mdc-outlined-button:not(:disabled) { border-color: var(--pc-border) !important; }
+
+.mat-mdc-form-field {
+  --mdc-outlined-text-field-container-shape: var(--pc-radius-sm);
+  --mdc-outlined-text-field-outline-color: #e2e5ec;
+}
+
+// Tables: light uppercase header, roomy rows, horizontally scrollable on small screens
+.mat-mdc-table {
+  width: 100%;
+  background: transparent !important;
+}
+.mat-mdc-header-row { background: #fafbfc; }
+.mat-mdc-header-cell {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pc-text-muted) !important;
+  border-bottom-color: var(--pc-border) !important;
+}
+.mat-mdc-cell { color: var(--pc-text); border-bottom-color: var(--pc-border) !important; }
+.mat-mdc-row:hover { background: #fafaff; }
+.mat-mdc-card-content:has(> .mat-mdc-table),
+.mat-mdc-card-content:has(> table) { overflow-x: auto; }
+.mat-mdc-paginator { background: transparent !important; }
+
+// Soft tinted chips instead of solid fills
+.mat-mdc-chip.mat-mdc-standard-chip.mat-mdc-chip-highlighted {
+  --mdc-chip-elevated-container-color: var(--pc-primary-soft);
+  --mdc-chip-label-text-color: var(--pc-primary-600);
+  --mat-chip-elevated-container-color: var(--pc-primary-soft);
+  --mat-chip-label-text-color: var(--pc-primary-600);
+  --mdc-chip-container-height: 26px;
+  font-weight: 500;
+}
+
+// Filter bars don't need reserved hint/error space under each field
+.filters-card .mat-mdc-form-field-subscript-wrapper { display: none; }
+
+.mat-mdc-menu-panel { border-radius: var(--pc-radius-sm) !important; box-shadow: var(--pc-shadow-hover) !important; }
+.mat-mdc-dialog-surface { border-radius: var(--pc-radius) !important; }
+.mat-expansion-panel { border-radius: var(--pc-radius-sm) !important; box-shadow: none !important; border: 1px solid var(--pc-border); }
+.mat-mdc-progress-bar { border-radius: 999px; }
+
+// Shared page layout helpers
+.pc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.pc-grid {
+  display: grid;
+  gap: 20px;
+}
+.pc-muted { color: var(--pc-text-muted); }
 
 // Scrollbar styling
 ::-webkit-scrollbar {
@@ -80,30 +226,29 @@ html, body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #bdbdbd;
+  background: #d4d7e0;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9e9e9e;
+  background: #b8bcc8;
 }
 
 // Snackbar styles
 .snackbar-success {
-  background: #2e7d32;
-  color: #ffffff;
+  --mdc-snackbar-container-color: #059669;
+  --mdc-snackbar-supporting-text-color: #ffffff;
   .mat-mdc-snack-bar-action { color: #ffffff; }
 }
 .snackbar-error {
-  background: #c62828;
-  color: #ffffff;
+  --mdc-snackbar-container-color: #dc2626;
+  --mdc-snackbar-supporting-text-color: #ffffff;
   .mat-mdc-snack-bar-action { color: #ffffff; }
 }
 .snackbar-warning {
-  background: #e65100;
-  color: #ffffff;
+  --mdc-snackbar-container-color: #d97706;
+  --mdc-snackbar-supporting-text-color: #ffffff;
   .mat-mdc-snack-bar-action { color: #ffffff; }
 }

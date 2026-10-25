@@ -13,4 +13,6 @@ public interface RepositoryConnectorRepository extends JpaRepository<RepositoryC
     List<RepositoryConnector> findByProjectId(UUID projectId);
     List<RepositoryConnector> findByWorkspaceIdOrderByCreatedAtDesc(UUID workspaceId);
     Optional<RepositoryConnector> findByProjectIdAndRepositoryName(UUID projectId, String repoName);
+
+    long countByWorkspaceIdAndVerifiedTrue(UUID workspaceId);
 }

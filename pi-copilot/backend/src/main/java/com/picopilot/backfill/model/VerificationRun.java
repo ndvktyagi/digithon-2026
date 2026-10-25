@@ -4,6 +4,8 @@ import com.picopilot.common.model.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -39,6 +41,8 @@ public class VerificationRun extends BaseEntity {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "result_detail", columnDefinition = "jsonb")
     private String resultDetail;

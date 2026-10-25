@@ -1,10 +1,15 @@
 package com.picopilot.identity.controller;
 
 import com.picopilot.identity.dto.AddMemberRequest;
+import com.picopilot.identity.dto.AdvanceStageRequest;
 import com.picopilot.identity.dto.CreateWorkspaceRequest;
+import com.picopilot.identity.dto.ReopenStageRequest;
+import com.picopilot.identity.dto.UpdateWorkspaceRequest;
+import com.picopilot.identity.dto.WorkspaceLifecycleResponse;
 import com.picopilot.identity.dto.WorkspaceResponse;
 import com.picopilot.identity.model.Workspace;
 import com.picopilot.identity.model.WorkspaceMember;
+import com.picopilot.identity.service.WorkspaceLifecycleService;
 import com.picopilot.identity.service.WorkspaceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +27,7 @@ import java.util.UUID;
 public class WorkspaceController {
 
     private final WorkspaceService workspaceService;
+    private final WorkspaceLifecycleService lifecycleService;
 
     @GetMapping
     public List<WorkspaceResponse> listWorkspaces(@AuthenticationPrincipal Jwt jwt) {
@@ -48,6 +54,42 @@ public class WorkspaceController {
         return toResponse(workspaceService.getWorkspace(workspaceId, jwt.getSubject()));
     }
 
+    @PutMapping("/{workspaceId}")
+    public WorkspaceResponse updateWorkspace(@PathVariable UUID workspaceId,
+                                              @Valid @RequestBody UpdateWorkspaceRequest request,
+                                              @AuthenticationPrincipal Jwt jwt) {
+        return toResponse(workspaceService.updateWorkspace(
+            workspaceId, request.name(), request.description(), jwt.getSubject()));
+    }
+
+    @DeleteMapping("/{workspaceId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void archiveWorkspace(@PathVariable UUID workspaceId,
+                                 @AuthenticationPrincipal Jwt jwt) {
+        workspaceService.archiveWorkspace(workspaceId, jwt.getSubject());
+    }
+
+    @GetMapping("/{workspaceId}/lifecycle")
+    public WorkspaceLifecycleResponse getLifecycle(@PathVariable UUID workspaceId,
+                                                    @AuthenticationPrincipal Jwt jwt) {
+        return lifecycleService.getLifecycle(workspaceId, jwt.getSubject());
+    }
+
+    @PostMapping("/{workspaceId}/lifecycle/advance")
+    public WorkspaceLifecycleResponse advanceStage(@PathVariable UUID workspaceId,
+                                                    @RequestBody(required = false) AdvanceStageRequest request,
+                                                    @AuthenticationPrincipal Jwt jwt) {
+        boolean confirmed = request != null && request.confirmed();
+        return lifecycleService.advance(workspaceId, jwt.getSubject(), confirmed);
+    }
+
+    @PostMapping("/{workspaceId}/lifecycle/reopen")
+    public WorkspaceLifecycleResponse reopenStage(@PathVariable UUID workspaceId,
+                                                   @Valid @RequestBody ReopenStageRequest request,
+                                                   @AuthenticationPrincipal Jwt jwt) {
+        return lifecycleService.reopen(workspaceId, jwt.getSubject(), request.stage());
+    }
+
     @PostMapping("/{workspaceId}/members")
     @ResponseStatus(HttpStatus.CREATED)
     public void addMember(@PathVariable UUID workspaceId,
@@ -68,7 +110,7 @@ public class WorkspaceController {
     private WorkspaceResponse toResponse(Workspace w) {
         return new WorkspaceResponse(
             w.getId(), w.getName(), w.getSlug(),
-            w.getDescription(), w.isActive(),
+            w.getDescription(), w.isActive(), w.getLifecycleStage(),
             w.getCreatedAt(), w.getUpdatedAt()
         );
     }

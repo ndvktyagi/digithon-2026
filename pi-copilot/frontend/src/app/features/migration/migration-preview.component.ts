@@ -8,17 +8,19 @@ import { MatTabsModule } from '@angular/material/tabs';
 import { MatTableModule } from '@angular/material/table';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-migration-preview',
   standalone: true,
   imports: [
-    CommonModule, MatCardModule, MatButtonModule, MatIconModule, MatDividerModule,
+    PageHeaderComponent, CommonModule, MatCardModule, MatButtonModule, MatIconModule, MatDividerModule,
     MatTabsModule, MatTableModule, StatusBadgeComponent,
   ],
   template: `
-    <div class="migration-page">
-      <h1>Migration Plan Preview</h1>
+    <div class="pc-page migration-page">
+      <app-page-header title="Migration Plan Preview"
+        subtitle="Review generated changes before approving the migration."></app-page-header>
 
       <mat-card>
         <mat-card-header>
@@ -71,8 +73,6 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .migration-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
     .code-block {
       background: #f5f5f5;
       padding: 16px;

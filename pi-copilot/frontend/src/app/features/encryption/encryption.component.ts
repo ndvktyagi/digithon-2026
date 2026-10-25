@@ -10,18 +10,19 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { HttpClient } from '@angular/common/http';
 import { NotificationService } from '../../core/notifications/notification.service';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-encryption',
   standalone: true,
   imports: [
-    CommonModule, ReactiveFormsModule, MatCardModule, MatFormFieldModule,
+    PageHeaderComponent, CommonModule, ReactiveFormsModule, MatCardModule, MatFormFieldModule,
     MatInputModule, MatSelectModule, MatButtonModule, MatIconModule, MatSlideToggleModule,
   ],
   template: `
-    <div class="encryption-page">
-      <h1>Encryption Provider Configuration</h1>
-      <p class="subtitle">Configure your key management service for PI data encryption.</p>
+    <div class="pc-page encryption-page">
+      <app-page-header title="Encryption Provider Configuration"
+        subtitle="Configure your key management service for PI data encryption."></app-page-header>
 
       <mat-card>
         <mat-card-header>
@@ -99,9 +100,6 @@ import { NotificationService } from '../../core/notifications/notification.servi
     </div>
   `,
   styles: [`
-    .encryption-page { padding: 24px; }
-    h1 { margin: 0 0 8px; }
-    .subtitle { color: #757575; margin: 0 0 24px; }
     .full-width { width: 100%; margin-bottom: 8px; }
     .form-grid {
       display: grid;

@@ -4,6 +4,8 @@ import com.picopilot.common.model.TenantAwareEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -33,6 +35,8 @@ public class BackfillJob extends TenantAwareEntity {
 
     @Column(name = "failed_rows")
     private Long failedRows;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "current_checkpoint", columnDefinition = "jsonb")
     private String currentCheckpoint;

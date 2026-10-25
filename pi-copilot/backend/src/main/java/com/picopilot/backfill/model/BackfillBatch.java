@@ -4,6 +4,8 @@ import com.picopilot.common.model.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -22,8 +24,12 @@ public class BackfillBatch extends BaseEntity {
     @Column(nullable = false)
     private int batchNumber;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+
     @Column(name = "start_range", columnDefinition = "jsonb")
     private String startRange;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "end_range", columnDefinition = "jsonb")
     private String endRange;
@@ -45,6 +51,8 @@ public class BackfillBatch extends BaseEntity {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "error_details", columnDefinition = "jsonb")
     private String errorDetails;

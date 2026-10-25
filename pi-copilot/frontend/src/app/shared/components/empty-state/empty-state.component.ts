@@ -25,7 +25,7 @@ import { MatButtonModule } from '@angular/material/button';
       justify-content: center;
       padding: 64px 24px;
       text-align: center;
-      color: #757575;
+      color: var(--pc-text-muted);
     }
     .empty-icon {
       font-size: 64px;

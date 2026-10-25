@@ -10,17 +10,19 @@ import { HttpClient } from '@angular/common/http';
 import { interval, Subscription } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-scan-progress',
   standalone: true,
   imports: [
-    CommonModule, MatCardModule, MatProgressBarModule, MatButtonModule,
+    PageHeaderComponent, CommonModule, MatCardModule, MatProgressBarModule, MatButtonModule,
     MatIconModule, MatListModule, StatusBadgeComponent,
   ],
   template: `
-    <div class="progress-page">
-      <h1>Scan Progress</h1>
+    <div class="pc-page progress-page">
+      <app-page-header title="Scan Progress"
+        subtitle="Live status of the running discovery scan."></app-page-header>
 
       <mat-card>
         <mat-card-header>
@@ -72,9 +74,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .progress-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
-    .progress-text { text-align: center; color: #757575; margin: 8px 0 16px; }
+    .progress-text { text-align: center; color: var(--pc-text-muted); margin: 8px 0 16px; }
     .scan-stats {
       display: flex;
       gap: 24px;

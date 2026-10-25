@@ -15,9 +15,15 @@ public final class GitHubDtos {
     public record BranchesRequest(@NotBlank String githubUrl, @NotBlank String token,
                                   @NotBlank String owner, @NotBlank String repo) {}
 
+    /** projectName is optional; it defaults to the repository's full name. */
     public record SaveConnectorRequest(@NotBlank String githubUrl, @NotBlank String token,
                                        @NotBlank String owner, @NotBlank String repo,
-                                       @NotBlank String branch, List<String> includePaths) {}
+                                       @NotBlank String branch, List<String> includePaths,
+                                       String projectName) {}
+
+    /** Repository stays fixed; a blank token keeps the stored one. */
+    public record UpdateConnectorRequest(String projectName, String token,
+                                         @NotBlank String branch, List<String> includePaths) {}
 
     public record FoldersRequest(@NotBlank String githubUrl, @NotBlank String token,
                                  @NotBlank String owner, @NotBlank String repo,

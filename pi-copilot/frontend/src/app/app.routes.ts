@@ -24,6 +24,16 @@ export const routes: Routes = [
     canActivate: [authGuard],
   },
   {
+    // Same workspace manager, rendered inside the app shell once a workspace is in use.
+    path: 'workspaces',
+    loadComponent: () =>
+      import('./features/login/workspace-selector.component').then(
+        (m) => m.WorkspaceSelectorComponent
+      ),
+    canActivate: [authGuard],
+    data: { embedded: true },
+  },
+  {
     path: '',
     canActivate: [authGuard, workspaceGuard],
     children: [
@@ -36,6 +46,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'lifecycle',
+        loadComponent: () =>
+          import('./features/lifecycle/workspace-lifecycle.component').then(
+            (m) => m.WorkspaceLifecycleComponent
+          ),
+      },
+      {
         path: 'connectors',
         loadChildren: () =>
           import('./features/connectors/connectors.routes').then(
@@ -45,19 +62,26 @@ export const routes: Routes = [
         data: { roles: [UserRole.APP_OWNER, UserRole.APP_DEVELOPER, UserRole.PLATFORM_ADMIN] },
       },
       {
+        path: 'scans',
+        loadComponent: () =>
+          import('./features/scans/scan-list.component').then(
+            (m) => m.ScanListComponent
+          ),
+      },
+      {
         path: 'scans/new',
-        loadChildren: () =>
-          import('./features/scan-wizard/scan-wizard.routes').then(
-            (m) => m.SCAN_WIZARD_ROUTES
+        loadComponent: () =>
+          import('./features/scans/new-scan.component').then(
+            (m) => m.NewScanComponent
           ),
         canActivate: [roleGuard],
-        data: { roles: [UserRole.APP_OWNER, UserRole.APP_DEVELOPER] },
+        data: { roles: [UserRole.APP_OWNER, UserRole.APP_DEVELOPER, UserRole.PLATFORM_ADMIN] },
       },
       {
         path: 'scans/:scanId',
         loadComponent: () =>
-          import('./features/scan-progress/scan-progress.component').then(
-            (m) => m.ScanProgressComponent
+          import('./features/scans/scan-detail.component').then(
+            (m) => m.ScanDetailComponent
           ),
       },
       {

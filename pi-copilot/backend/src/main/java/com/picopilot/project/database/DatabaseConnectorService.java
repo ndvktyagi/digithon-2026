@@ -1,6 +1,7 @@
 package com.picopilot.project.database;
 
 import com.picopilot.common.crypto.SecretCipher;
+import com.picopilot.common.exception.ResourceNotFoundException;
 import com.picopilot.common.exception.ValidationException;
 import com.picopilot.common.net.HostPolicy;
 import com.picopilot.identity.service.WorkspaceService;
@@ -49,8 +50,15 @@ public class DatabaseConnectorService {
                                     @NotBlank String databaseName,
                                     @NotBlank String sslMode,
                                     @NotBlank String username,
-                                    @NotBlank String password,
-                                    String schemaScope) {}
+                                    String password, // optional on update: blank keeps the stored password
+                                    String schemaScope) {
+
+        ConnectionRequest withPassword(String storedPassword) {
+            return password == null || password.isBlank()
+                ? new ConnectionRequest(projectName, host, port, databaseName, sslMode, username, storedPassword, schemaScope)
+                : this;
+        }
+    }
 
     public record TestResult(boolean success, String serverVersion, List<String> schemas) {}
 
@@ -61,6 +69,9 @@ public class DatabaseConnectorService {
     public TestResult test(UUID workspaceId, ConnectionRequest request, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
         validate(request);
+        if (request.password() == null || request.password().isBlank()) {
+            throw new ValidationException("Password is required");
+        }
         try (Connection connection = open(request)) {
             String version = connection.getMetaData().getDatabaseProductVersion();
             List<String> schemas = new ArrayList<>();
@@ -82,12 +93,86 @@ public class DatabaseConnectorService {
 
     @Transactional
     public ConnectorSummary save(UUID workspaceId, ConnectionRequest request, String userId) {
+        requireProjectName(request);
+        test(workspaceId, request, userId);
+
+        ApplicationProject project = resolveProject(workspaceId, request.projectName().trim());
+        DatabaseConnector connector = connectorRepository.findByProjectId(project.getId()).stream()
+            .filter(c -> c.getHost().equalsIgnoreCase(request.host()) && c.getPort() == request.port()
+                && c.getDatabaseName().equals(request.databaseName()))
+            .findFirst()
+            .orElseGet(DatabaseConnector::new);
+        connector.setWorkspaceId(workspaceId);
+        connector = apply(connector, project, request);
+
+        log.info("User {} saved database connector {} for project {}", userId, connector.getId(), project.getName());
+        return toSummary(connector);
+    }
+
+    /** Tests a saved connector, using its stored password unless the request supplies a new one. */
+    public TestResult testExisting(UUID workspaceId, UUID connectorId, ConnectionRequest request, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        DatabaseConnector connector = find(workspaceId, connectorId);
+        return test(workspaceId, request.withPassword(secretCipher.decrypt(connector.getEncryptedPassword())), userId);
+    }
+
+    @Transactional
+    public ConnectorSummary update(UUID workspaceId, UUID connectorId, ConnectionRequest request, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        requireProjectName(request);
+        DatabaseConnector connector = find(workspaceId, connectorId);
+        ConnectionRequest effective = request.withPassword(secretCipher.decrypt(connector.getEncryptedPassword()));
+        test(workspaceId, effective, userId);
+
+        connector = apply(connector, resolveProject(workspaceId, request.projectName().trim()), effective);
+        log.info("User {} updated database connector {}", userId, connectorId);
+        return toSummary(connector);
+    }
+
+    @Transactional(readOnly = true)
+    public ConnectorSummary get(UUID workspaceId, UUID connectorId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        return toSummary(find(workspaceId, connectorId));
+    }
+
+    @Transactional
+    public void delete(UUID workspaceId, UUID connectorId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        connectorRepository.delete(find(workspaceId, connectorId));
+        log.info("User {} deleted database connector {}", userId, connectorId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConnectorSummary> list(UUID workspaceId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        return connectorRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream()
+            .map(this::toSummary)
+            .toList();
+    }
+
+    /** Opens a read-only connection with the connector's stored credentials, for scanning. */
+    public Connection openConnection(DatabaseConnector connector) throws SQLException {
+        String sslMode = connector.getTlsMode() == null ? "prefer" : connector.getTlsMode();
+        ConnectionRequest request = new ConnectionRequest(null, connector.getHost(), connector.getPort(),
+            connector.getDatabaseName(), sslMode, connector.getUsername(),
+            secretCipher.decrypt(connector.getEncryptedPassword()), connector.getSchemaScope());
+        validate(request);
+        return open(request);
+    }
+
+    private DatabaseConnector find(UUID workspaceId, UUID connectorId) {
+        return connectorRepository.findById(connectorId)
+            .filter(c -> workspaceId.equals(c.getWorkspaceId()))
+            .orElseThrow(() -> new ResourceNotFoundException("DatabaseConnector", connectorId.toString()));
+    }
+
+    private static void requireProjectName(ConnectionRequest request) {
         if (request.projectName() == null || request.projectName().isBlank()) {
             throw new ValidationException("Application / project name is required");
         }
-        test(workspaceId, request, userId);
+    }
 
-        String projectName = request.projectName().trim();
+    private ApplicationProject resolveProject(UUID workspaceId, String projectName) {
         ApplicationProject project = projectRepository.findByWorkspaceId(workspaceId).stream()
             .filter(p -> p.getName().equalsIgnoreCase(projectName))
             .findFirst()
@@ -98,15 +183,10 @@ public class DatabaseConnectorService {
                 return p;
             });
         project.setDatabaseType("POSTGRESQL");
-        project = projectRepository.save(project);
+        return projectRepository.save(project);
+    }
 
-        UUID projectId = project.getId();
-        DatabaseConnector connector = connectorRepository.findByProjectId(projectId).stream()
-            .filter(c -> c.getHost().equalsIgnoreCase(request.host()) && c.getPort() == request.port()
-                && c.getDatabaseName().equals(request.databaseName()))
-            .findFirst()
-            .orElseGet(DatabaseConnector::new);
-        connector.setWorkspaceId(workspaceId);
+    private DatabaseConnector apply(DatabaseConnector connector, ApplicationProject project, ConnectionRequest request) {
         connector.setProject(project);
         connector.setHost(request.host());
         connector.setPort(request.port());
@@ -118,18 +198,7 @@ public class DatabaseConnectorService {
         connector.setSchemaScope(request.schemaScope());
         connector.setVerified(true);
         connector.setStatus("ACTIVE");
-        connector = connectorRepository.save(connector);
-
-        log.info("User {} saved database connector {} for project {}", userId, connector.getId(), projectName);
-        return toSummary(connector);
-    }
-
-    @Transactional(readOnly = true)
-    public List<ConnectorSummary> list(UUID workspaceId, String userId) {
-        workspaceService.requireMembership(workspaceId, userId);
-        return connectorRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream()
-            .map(this::toSummary)
-            .toList();
+        return connectorRepository.save(connector);
     }
 
     private void validate(ConnectionRequest request) {

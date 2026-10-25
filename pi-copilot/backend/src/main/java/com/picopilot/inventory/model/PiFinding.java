@@ -94,4 +94,11 @@ public class PiFinding extends TenantAwareEntity {
 
     @Column(name = "field_order_hash", length = 64, unique = true)
     private String fieldOrderHash;
+
+    @Column(name = "database_connector_id")
+    private UUID databaseConnectorId;
+
+    /** Selected by the reviewer for encryption when the scan was approved. */
+    @Column(nullable = false)
+    private boolean approved;
 }

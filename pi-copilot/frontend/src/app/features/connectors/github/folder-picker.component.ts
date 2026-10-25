@@ -86,12 +86,14 @@ interface Row {
     .expander { width: 36px; height: 36px; padding: 6px; }
     .spacer { display: inline-block; width: 36px; }
     .folder { color: #f9a825; font-size: 18px; width: 18px; height: 18px; vertical-align: middle; margin-right: 6px; }
-    .empty, .note { color: #757575; padding: 8px 16px; }
+    .empty, .note { color: var(--pc-text-muted); padding: 8px 16px; }
   `],
 })
 export class FolderPickerComponent implements OnChanges {
   @Input() folders: string[] = [];
   @Input() truncated = false;
+  /** Folders pre-selected whenever the folder list is (re)loaded, e.g. a saved connector's paths. */
+  @Input() initialSelection: string[] = [];
   @Output() selectionChange = new EventEmitter<string[]>();
 
   selected = new Set<string>();
@@ -107,7 +109,7 @@ export class FolderPickerComponent implements OnChanges {
 
   ngOnChanges(): void {
     this.build();
-    this.selected.clear();
+    this.selected = new Set(this.initialSelection);
     this.expanded = new Set(this.roots.map((r) => r.path));
     this.filter = '';
     this.refresh();

@@ -11,6 +11,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/confidence-bar.component';
 
 @Component({
@@ -19,17 +20,13 @@ import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/c
   imports: [
     CommonModule, MatCardModule, MatIconModule, MatButtonModule, MatDividerModule,
     MatChipsModule, MatTabsModule, MatListModule, MatExpansionModule,
-    StatusBadgeComponent, ConfidenceBarComponent,
+    StatusBadgeComponent, ConfidenceBarComponent, PageHeaderComponent,
   ],
   template: `
-    <div class="detail-page" *ngIf="finding() as f">
-      <div class="page-header">
-        <button mat-icon-button routerLink="/inventory">
-          <mat-icon>arrow_back</mat-icon>
-        </button>
-        <h1>{{ f.columnName }}</h1>
-        <app-status-badge [label]="f.status" [status]="f.status"></app-status-badge>
-      </div>
+    <div class="pc-page detail-page" *ngIf="finding() as f">
+      <app-page-header [title]="f.columnName" [subtitle]="f.dbSchema + '.' + f.tableName" backLink="/inventory">
+        <app-status-badge headerBadge [label]="f.status" [status]="f.status"></app-status-badge>
+      </app-page-header>
 
       <div class="detail-grid">
         <!-- Key Info -->
@@ -114,13 +111,10 @@ import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/c
     </div>
   `,
   styles: [`
-    .detail-page { padding: 24px; }
-    .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-    h1 { margin: 0; }
     .detail-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
+      gap: 20px;
     }
     .info-grid {
       display: grid;
@@ -128,7 +122,7 @@ import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/c
       gap: 12px;
     }
     .info-item { font-size: 14px; }
-    .info-item .label { color: #757575; margin-right: 8px; font-weight: 500; }
+    .info-item .label { color: var(--pc-text-muted); margin-right: 8px; font-weight: 500; }
     .code-snippet {
       background: #f5f5f5;
       padding: 12px;
@@ -137,7 +131,8 @@ import { ConfidenceBarComponent } from '../../shared/components/confidence-bar/c
       font-size: 12px;
       overflow-x: auto;
     }
-    .empty-text { color: #757575; padding: 16px 0; }
+    .empty-text { color: var(--pc-text-muted); padding: 16px 0; }
+    @media (max-width: 600px) { .info-grid { grid-template-columns: 1fr; } }
   `],
 })
 export class FindingDetailComponent implements OnInit {

@@ -19,13 +19,13 @@ import { CommonModule } from '@angular/common';
       min-width: 120px;
     }
     .bar-fill {
-      height: 8px;
+      height: 6px;
       border-radius: 4px;
       transition: width 0.3s ease;
     }
-    .bar-fill.high { width: 100%; background: #2e7d32; }
-    .bar-fill.medium { width: 66%; background: #e65100; }
-    .bar-fill.low { width: 33%; background: #c62828; }
+    .bar-fill.high { width: 100%; background: #10b981; }
+    .bar-fill.medium { width: 66%; background: #f59e0b; }
+    .bar-fill.low { width: 33%; background: #ef4444; }
     .label {
       font-size: 12px;
       font-weight: 600;

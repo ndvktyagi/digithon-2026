@@ -26,17 +26,29 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
   ],
   template: `
     <div class="login-container">
+      <aside class="brand-panel">
+        <div class="brand"><img class="brand-logo" src="brand/pi-logo.png" alt="" /> PI Security Copilot</div>
+        <div class="pitch">
+          <img class="hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Pilot" />
+          <h2>Find, map and protect personal information — before it leaks.</h2>
+          <ul>
+            <li><mat-icon>radar</mat-icon> Discover PI across code and databases</li>
+            <li><mat-icon>fact_check</mat-icon> Review findings with confidence scores</li>
+            <li><mat-icon>lock</mat-icon> Encrypt and backfill with safe rollbacks</li>
+          </ul>
+        </div>
+        <p class="foot">Security Co-Pilot · Digithon 2026</p>
+      </aside>
+
+      <main class="form-panel">
+      <img class="mobile-hero" src="brand/pi-banner.jpg" alt="Personal Identity Security Pilot" />
       <mat-card class="login-card">
         <mat-progress-bar *ngIf="isLoading$ | async" mode="indeterminate"></mat-progress-bar>
-        <mat-card-header>
-          <mat-card-title>
-            <mat-icon class="logo-icon">security</mat-icon>
-            PI Security Copilot
-          </mat-card-title>
-          <mat-card-subtitle>
-            Discover, map, and protect personal information in your applications
-          </mat-card-subtitle>
-        </mat-card-header>
+        <div class="card-head">
+          <img class="brand-logo small" src="brand/pi-logo.png" alt="PI Security Copilot logo" />
+          <h1>Welcome back</h1>
+          <p>Sign in to PI Security Copilot to continue.</p>
+        </div>
 
         <mat-card-content>
           <div class="error" *ngIf="loginError$ | async as error">
@@ -57,7 +69,7 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
                 <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
               </button>
             </mat-form-field>
-            <button mat-raised-button color="primary" type="submit" class="full-width"
+            <button mat-raised-button color="primary" type="submit" class="full-width submit"
                     [disabled]="!username || !password || (isLoading$ | async)">
               <mat-icon>login</mat-icon> Sign in
             </button>
@@ -72,37 +84,61 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
           </button>
         </mat-card-content>
       </mat-card>
+      </main>
     </div>
   `,
   styles: [`
     .login-container {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       min-height: 100vh;
-      padding: 16px;
-      background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
+      background: var(--pc-bg);
     }
-    .login-card {
-      width: 100%;
-      max-width: 440px;
-      padding: 24px;
+    .brand-panel {
+      position: relative; overflow: hidden;
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 40px 48px;
+      /* navy tones sampled from the brand banner so the artwork blends into the panel */
+      background:
+        radial-gradient(circle at 50% 35%, rgba(34, 211, 238, 0.18), transparent 55%),
+        linear-gradient(160deg, #061a3a 0%, #04122b 55%, #020b1c 100%);
+      color: #fff;
     }
-    .logo-icon {
-      font-size: 36px;
-      width: 36px;
-      height: 36px;
-      margin-right: 8px;
-      vertical-align: middle;
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
+    .brand-logo { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; }
+    .brand-logo.small {
+      display: block; width: 52px; height: 52px; margin-bottom: 16px;
+      box-shadow: 0 4px 14px rgba(14, 116, 200, 0.35);
     }
-    mat-card-subtitle {
-      margin-top: 8px;
+    .hero {
+      display: block; width: 100%; max-width: 620px; margin-bottom: 32px;
+      border-radius: var(--pc-radius);
+      border: 1px solid rgba(103, 232, 249, 0.25);
+      box-shadow: 0 0 40px rgba(34, 211, 238, 0.25), 0 20px 40px rgba(0, 0, 0, 0.4);
     }
+    .mobile-hero { display: none; }
+    .pitch h2 { max-width: 560px; font-size: 26px; line-height: 1.3; font-weight: 700; color: #fff; }
+    .pitch ul { list-style: none; margin-top: 28px; display: flex; flex-direction: column; gap: 14px; }
+    .pitch li { display: flex; align-items: center; gap: 12px; font-size: 15px; opacity: 0.95; }
+    .pitch li mat-icon {
+      display: grid; place-items: center; width: 34px; height: 34px; padding: 7px; box-sizing: border-box;
+      font-size: 20px; border-radius: 10px; color: #67e8f9; background: rgba(34, 211, 238, 0.14);
+    }
+    .foot { font-size: 12px; opacity: 0.7; }
+
+    .form-panel {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      padding: 24px 16px;
+    }
+    .login-card { width: 100%; max-width: 420px; padding: 12px 8px; }
+    .card-head { padding: 20px 20px 0; }
+    .card-head h1 { font-size: 24px; }
+    .card-head p { margin-top: 4px; color: var(--pc-text-muted); }
     mat-card-content {
       display: flex;
       flex-direction: column;
       gap: 12px;
-      padding-top: 24px;
+      padding-top: 24px !important;
     }
     .login-form {
       display: flex;
@@ -117,22 +153,22 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
       align-items: center;
       gap: 8px;
       padding: 12px;
-      border-radius: 4px;
-      background: #ffebee;
-      color: #c62828;
+      border-radius: var(--pc-radius-sm);
+      background: var(--pc-danger-soft);
+      color: #b91c1c;
     }
     .divider {
       display: flex;
       align-items: center;
       gap: 12px;
-      color: #9e9e9e;
+      color: var(--pc-text-subtle);
       font-size: 12px;
       text-transform: uppercase;
     }
     .divider::before, .divider::after {
       content: '';
       flex: 1;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--pc-border);
     }
     .google-button {
       display: flex;
@@ -141,6 +177,14 @@ const GOOGLE_GSI_SRC = 'https://accounts.google.com/gsi/client';
     }
     .google-button[hidden] {
       display: none;
+    }
+    @media (max-width: 900px) {
+      .login-container { grid-template-columns: 1fr; }
+      .brand-panel { display: none; }
+      .mobile-hero {
+        display: block; width: 100%; max-width: 420px; border-radius: var(--pc-radius);
+        box-shadow: 0 8px 24px rgba(4, 18, 43, 0.25);
+      }
     }
   `],
 })

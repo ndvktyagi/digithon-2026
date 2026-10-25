@@ -53,4 +53,43 @@ public class GitHubConnectorController {
                                        @AuthenticationPrincipal Jwt jwt) {
         return service.list(workspaceId, jwt.getSubject());
     }
+
+    @GetMapping("/connectors/{connectorId}")
+    public ConnectorSummary get(@PathVariable UUID workspaceId,
+                                @PathVariable UUID connectorId,
+                                @AuthenticationPrincipal Jwt jwt) {
+        return service.get(workspaceId, connectorId, jwt.getSubject());
+    }
+
+    /** Branches and folders of a saved connector, read with its stored token. */
+    @GetMapping("/connectors/{connectorId}/branches")
+    public List<BranchSummary> connectorBranches(@PathVariable UUID workspaceId,
+                                                 @PathVariable UUID connectorId,
+                                                 @AuthenticationPrincipal Jwt jwt) {
+        return service.listBranches(workspaceId, connectorId, jwt.getSubject());
+    }
+
+    @GetMapping("/connectors/{connectorId}/folders")
+    public FoldersResponse connectorFolders(@PathVariable UUID workspaceId,
+                                            @PathVariable UUID connectorId,
+                                            @RequestParam String branch,
+                                            @AuthenticationPrincipal Jwt jwt) {
+        return service.listFolders(workspaceId, connectorId, branch, jwt.getSubject());
+    }
+
+    @PutMapping("/connectors/{connectorId}")
+    public ConnectorSummary update(@PathVariable UUID workspaceId,
+                                   @PathVariable UUID connectorId,
+                                   @Valid @RequestBody UpdateConnectorRequest request,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return service.update(workspaceId, connectorId, request, jwt.getSubject());
+    }
+
+    @DeleteMapping("/connectors/{connectorId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID workspaceId,
+                       @PathVariable UUID connectorId,
+                       @AuthenticationPrincipal Jwt jwt) {
+        service.delete(workspaceId, connectorId, jwt.getSubject());
+    }
 }

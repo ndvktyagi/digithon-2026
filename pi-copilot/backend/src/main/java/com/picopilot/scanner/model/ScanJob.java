@@ -9,6 +9,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -61,6 +63,23 @@ public class ScanJob extends TenantAwareEntity {
     @Column(name = "idempotency_key", unique = true, length = 100)
     private String idempotencyKey;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+
     @Column(name = "scope_snapshot", columnDefinition = "jsonb")
     private String scopeSnapshot;
+
+    @Column(length = 150)
+    private String name;
+
+    @Column(name = "tables_with_pi")
+    private Integer tablesWithPi;
+
+    @Column(name = "approval_state", nullable = false, length = 20)
+    private String approvalState = "PENDING"; // PENDING, APPROVED
+
+    @Column(name = "approved_by", length = 100)
+    private String approvedBy;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
 }

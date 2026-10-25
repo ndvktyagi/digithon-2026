@@ -12,4 +12,7 @@ import java.util.UUID;
 public interface FeatureFlagRepository extends JpaRepository<FeatureFlag, UUID> {
     List<FeatureFlag> findByProjectId(UUID projectId);
     Optional<FeatureFlag> findByFlagName(String flagName);
+
+    long countByWorkspaceId(UUID workspaceId);
+    long countByWorkspaceIdAndCurrentState(UUID workspaceId, String currentState);
 }

@@ -18,8 +18,8 @@ type StatusColor = 'success' | 'warning' | 'error' | 'info' | 'neutral';
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 12px;
-      border-radius: 16px;
+      padding: 4px 10px;
+      border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
@@ -30,11 +30,11 @@ type StatusColor = 'success' | 'warning' | 'error' | 'info' | 'neutral';
       height: 8px;
       border-radius: 50%;
     }
-    .success { background: #e8f5e9; color: #2e7d32; .badge-dot { background: #2e7d32; } }
-    .warning { background: #fff3e0; color: #e65100; .badge-dot { background: #e65100; } }
-    .error { background: #ffebee; color: #c62828; .badge-dot { background: #c62828; } }
-    .info { background: #e3f2fd; color: #1565c0; .badge-dot { background: #1565c0; } }
-    .neutral { background: #f5f5f5; color: #616161; .badge-dot { background: #616161; } }
+    .success { background: #ecfdf5; color: #047857; .badge-dot { background: #10b981; } }
+    .warning { background: #fffbeb; color: #b45309; .badge-dot { background: #f59e0b; } }
+    .error { background: #fef2f2; color: #b91c1c; .badge-dot { background: #ef4444; } }
+    .info { background: var(--pc-primary-soft); color: var(--pc-primary-600); .badge-dot { background: var(--pc-primary); } }
+    .neutral { background: #f3f4f6; color: #4b5563; .badge-dot { background: #9ca3af; } }
   `],
 })
 export class StatusBadgeComponent {

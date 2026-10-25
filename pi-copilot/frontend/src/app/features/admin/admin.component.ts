@@ -9,17 +9,19 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-admin',
   standalone: true,
   imports: [
-    CommonModule, MatCardModule, MatTableModule, MatButtonModule, MatIconModule,
+    PageHeaderComponent, CommonModule, MatCardModule, MatTableModule, MatButtonModule, MatIconModule,
     MatDialogModule, MatFormFieldModule, MatSelectModule, StatusBadgeComponent,
   ],
   template: `
-    <div class="admin-page">
-      <h1>Administration</h1>
+    <div class="pc-page admin-page">
+      <app-page-header title="Administration"
+        subtitle="Manage workspace members and their roles."></app-page-header>
 
       <mat-card>
         <mat-card-header>
@@ -65,8 +67,6 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .admin-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
   `],
 })
 export class AdminComponent implements OnInit {

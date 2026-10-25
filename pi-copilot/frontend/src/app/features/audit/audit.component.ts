@@ -11,18 +11,20 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { HttpClient } from '@angular/common/http';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-audit',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, MatCardModule, MatTableModule, MatPaginatorModule,
+    PageHeaderComponent, CommonModule, FormsModule, MatCardModule, MatTableModule, MatPaginatorModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule, MatIconModule,
     StatusBadgeComponent,
   ],
   template: `
-    <div class="audit-page">
-      <h1>Audit Trail</h1>
+    <div class="pc-page audit-page">
+      <app-page-header title="Audit Trail"
+        subtitle="Every security-relevant action, who did it and when."></app-page-header>
 
       <mat-card class="filters-card">
         <mat-card-content>
@@ -95,9 +97,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .audit-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
-    .filters-card { margin-bottom: 16px; }
+    .filters-card .filter-row { padding-top: 4px; }
     .filter-row {
       display: flex;
       flex-wrap: wrap;

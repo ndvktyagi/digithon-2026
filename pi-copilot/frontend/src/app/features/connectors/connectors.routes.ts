@@ -6,18 +6,7 @@ export const CONNECTOR_ROUTES: Routes = [
     loadComponent: () =>
       import('./connectors.component').then((m) => m.ConnectorsComponent),
   },
-  {
-    path: 'github',
-    loadComponent: () =>
-      import('./github/github-connector.component').then(
-        (m) => m.GithubConnectorComponent
-      ),
-  },
-  {
-    path: 'postgresql',
-    loadComponent: () =>
-      import('./postgresql/postgresql-connector.component').then(
-        (m) => m.PostgresqlConnectorComponent
-      ),
-  },
+  // New / view / edit now open as tabs on the Connectors page
+  { path: 'github', redirectTo: '', pathMatch: 'full' },
+  { path: 'postgresql', redirectTo: '', pathMatch: 'full' },
 ];

@@ -10,17 +10,19 @@ import { HttpClient } from '@angular/common/http';
 import { interval, Subscription } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 
 @Component({
   selector: 'app-backfill-monitor',
   standalone: true,
   imports: [
-    CommonModule, MatCardModule, MatProgressBarModule, MatButtonModule,
+    PageHeaderComponent, CommonModule, MatCardModule, MatProgressBarModule, MatButtonModule,
     MatIconModule, MatTableModule, MatDividerModule, StatusBadgeComponent,
   ],
   template: `
-    <div class="backfill-page">
-      <h1>Backfill Monitor</h1>
+    <div class="pc-page backfill-page">
+      <app-page-header title="Backfill Monitor"
+        subtitle="Track encryption backfill jobs batch by batch."></app-page-header>
 
       <mat-card>
         <mat-card-header>
@@ -76,9 +78,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
     </div>
   `,
   styles: [`
-    .backfill-page { padding: 24px; }
-    h1 { margin: 0 0 16px; }
-    .progress-text { text-align: center; color: #757575; margin: 8px 0 16px; }
+    .progress-text { text-align: center; color: var(--pc-text-muted); margin: 8px 0 16px; }
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

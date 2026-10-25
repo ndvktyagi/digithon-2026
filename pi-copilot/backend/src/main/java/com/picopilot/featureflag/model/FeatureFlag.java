@@ -4,6 +4,8 @@ import com.picopilot.common.model.TenantAwareEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.JdbcTypeCode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -42,6 +44,8 @@ public class FeatureFlag extends TenantAwareEntity {
 
     @Column(name = "rollback_window_hours")
     private int rollbackWindowHours = 72;
+
+    @JdbcTypeCode(SqlTypes.JSON)
 
     @Column(name = "readiness_checks", columnDefinition = "jsonb")
     private String readinessChecks;

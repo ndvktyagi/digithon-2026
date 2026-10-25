@@ -1,9 +1,9 @@
 package com.picopilot.scanner.controller;
 
-import com.picopilot.common.dto.IdempotencyRequest;
-import com.picopilot.scanner.model.ScanJob;
-import com.picopilot.scanner.model.ScanScope;
+import com.picopilot.inventory.model.PiFinding;
 import com.picopilot.scanner.service.ScannerService;
+import com.picopilot.scanner.service.ScannerService.CreateScanRequest;
+import com.picopilot.scanner.service.ScannerService.ScanView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,49 +14,56 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/api/v1/workspaces/{workspaceId}/scans")
 @RequiredArgsConstructor
 public class ScannerController {
 
     private final ScannerService scannerService;
 
-    @PostMapping("/workspaces/{workspaceId}/projects/{projectId}/scans")
+    /** Creates a scan over the given databases (in execution order) and starts it immediately. */
+    @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ScanJob createScan(@PathVariable UUID workspaceId,
-                               @PathVariable UUID projectId,
+    public ScanView createScan(@PathVariable UUID workspaceId,
                                @RequestBody CreateScanRequest request,
                                @AuthenticationPrincipal Jwt jwt) {
-        return scannerService.createScan(workspaceId, projectId,
-            request.scanJob(), request.scanScope(), jwt.getSubject());
+        return scannerService.createAndStart(workspaceId, request, jwt.getSubject());
     }
 
-    @PostMapping("/workspaces/{workspaceId}/scans/{scanId}/start")
-    public ScanJob startScan(@PathVariable UUID workspaceId,
-                              @PathVariable UUID scanId,
-                              @AuthenticationPrincipal Jwt jwt) {
-        return scannerService.startScan(workspaceId, scanId, jwt.getSubject());
+    @GetMapping
+    public List<ScanView> listScans(@PathVariable UUID workspaceId,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        return scannerService.listScans(workspaceId, jwt.getSubject());
     }
 
-    @PostMapping("/workspaces/{workspaceId}/scans/{scanId}/cancel")
-    public ScanJob cancelScan(@PathVariable UUID workspaceId,
+    @GetMapping("/{scanId}")
+    public ScanView getScan(@PathVariable UUID workspaceId,
+                            @PathVariable UUID scanId,
+                            @AuthenticationPrincipal Jwt jwt) {
+        return scannerService.getScan(workspaceId, scanId, jwt.getSubject());
+    }
+
+    @PostMapping("/{scanId}/cancel")
+    public ScanView cancelScan(@PathVariable UUID workspaceId,
                                @PathVariable UUID scanId,
                                @AuthenticationPrincipal Jwt jwt) {
         return scannerService.cancelScan(workspaceId, scanId, jwt.getSubject());
     }
 
-    @GetMapping("/workspaces/{workspaceId}/scans/{scanId}")
-    public ScanJob getScanStatus(@PathVariable UUID workspaceId,
-                                   @PathVariable UUID scanId,
-                                   @AuthenticationPrincipal Jwt jwt) {
-        return scannerService.getScanStatus(workspaceId, scanId, jwt.getSubject());
+    @GetMapping("/{scanId}/findings")
+    public List<PiFinding> listFindings(@PathVariable UUID workspaceId,
+                                        @PathVariable UUID scanId,
+                                        @AuthenticationPrincipal Jwt jwt) {
+        return scannerService.listFindings(workspaceId, scanId, jwt.getSubject());
     }
 
-    @GetMapping("/workspaces/{workspaceId}/projects/{projectId}/scans")
-    public List<ScanJob> listScans(@PathVariable UUID workspaceId,
-                                     @PathVariable UUID projectId,
-                                     @AuthenticationPrincipal Jwt jwt) {
-        return scannerService.listScans(workspaceId, projectId, jwt.getSubject());
+    @PostMapping("/{scanId}/approve")
+    public ScanView approveScan(@PathVariable UUID workspaceId,
+                                @PathVariable UUID scanId,
+                                @RequestBody ApproveScanRequest request,
+                                @AuthenticationPrincipal Jwt jwt) {
+        return scannerService.approve(workspaceId, scanId, request.findingIds(), request.comment(),
+            jwt.getSubject(), jwt.getClaimAsString("preferred_username"));
     }
 
-    public record CreateScanRequest(ScanJob scanJob, ScanScope scanScope) {}
+    public record ApproveScanRequest(List<UUID> findingIds, String comment) {}
 }
