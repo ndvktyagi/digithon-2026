@@ -1,5 +1,6 @@
 package com.digithon.hr.entity;
 
+import com.digithon.hr.security.EncryptedStringConverter;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 
@@ -18,6 +19,11 @@ public class Employee {
 
     @Column(nullable = false, length = 180)
     private String email;
+
+    // PI Co-Pilot: encrypted copy of "email", kept in sync on save until the plain column is retired
+    @Convert(converter = EncryptedStringConverter.class)
+    @Column(name = "email_enc", columnDefinition = "text")
+    private String emailEncrypted;
 
     // Personal data used for the future DPDP scanning demonstration.
     @Column(length = 25)
@@ -56,5 +62,12 @@ public class Employee {
         this.phone = phone;
         this.department = department;
         this.joiningDate = joiningDate;
+    }
+
+    /** PI Co-Pilot: writes encrypted copies of PI fields alongside the plain values. */
+    @PrePersist
+    @PreUpdate
+    private void piCopilotSyncEncryptedFields() {
+        this.emailEncrypted = this.email;
     }
 }
