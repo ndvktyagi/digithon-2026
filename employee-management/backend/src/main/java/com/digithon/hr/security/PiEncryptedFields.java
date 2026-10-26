@@ -14,6 +14,7 @@ final class PiEncryptedFields {
     private static final Map<String, Map<String, String>> FIELDS = new HashMap<>();
 
     static {
+        add("com.digithon.hr.entity.Employee", "lastName", "last_name_enc");
         add("com.digithon.hr.entity.Employee", "phone", "phone_enc");
     }
 
