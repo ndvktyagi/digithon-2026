@@ -202,9 +202,9 @@ public class DataSyncExecutor {
     }
 
     /**
-     * While encrypted read is off the application writes only the plain columns, so rows changed since the last
-     * sync have a stale encrypted copy. Re-encrypts every copy that no longer decrypts to the plain value
-     * (and clears copies whose plain value was removed), so switching encrypted read on never serves old data.
+     * Until the release branch is deployed the application writes only the plain columns, so rows changed since
+     * the last sync have a stale encrypted copy. Re-encrypts every copy that no longer decrypts to the plain value
+     * (and clears copies whose plain value was removed), so the release, which reads the copies, never serves old data.
      */
     private DataSyncRun refreshTable(DataSyncRun run, TableResult t, List<TableResult> all, StringBuilder logText)
         throws SQLException {

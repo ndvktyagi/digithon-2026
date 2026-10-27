@@ -136,9 +136,8 @@ public class FinalReviewService {
                 if (repo != null) pullRequests.review(repo, run.getPrNumber(), run.getCommitSha(), "APPROVE",
                     "**Approved in PI Co-Pilot Final Review** (round " + run.getRoundNumber() + ")"
                         + (comment.isEmpty() ? "" : "\n\n" + comment), inline);
-                // Approved code goes into the connector's configured branch; safe to deploy with the flag off
-                mergeApproved(run, repo);
-                // The lifecycle moves on to Data Sync
+                // Approval does not merge: the branch is deployed as the release, and Finalize merges it
+                // into the base branch only once the release succeeded. The lifecycle moves on to Data Sync
                 events.publishEvent(new StageWorkCompletedEvent(workspaceId, WorkspaceStage.FINAL_REVIEW, userId));
             }
             case REJECT -> {
@@ -170,43 +169,6 @@ public class FinalReviewService {
             "IMPLEMENTATION", run.getId().toString(), run.getBranchName(), "SUCCESS", Severity.INFO, null, null, metadata);
         log.info("Final review of round {} in workspace {}: {} by {}", run.getRoundNumber(), workspaceId,
             request.decision(), userId);
-    }
-
-    /** Retries merging an approved round whose merge failed (e.g. a conflict resolved since). */
-    @Transactional
-    public void merge(UUID workspaceId, UUID runId, String userId) {
-        workspaceService.requireRole(workspaceId, userId, UserRole.PLATFORM_ADMIN, UserRole.APP_OWNER,
-            UserRole.SECURITY_REVIEWER, UserRole.PRIVACY_REVIEWER);
-        ImplementationRun run = find(workspaceId, runId);
-        if (!ImplementationRun.APPROVED.equals(run.getReviewStatus())) {
-            throw new InvalidStateException("Only an approved round can be merged");
-        }
-        if (ImplementationRun.MERGED.equals(run.getMergeStatus())) {
-            throw new InvalidStateException("This round is already merged into " + run.getBaseBranch());
-        }
-        mergeApproved(run, repoOrNull(run));
-    }
-
-    /** Merges the round's branch into its base branch and records the outcome on the run (never throws). */
-    private void mergeApproved(ImplementationRun run, PullRequestGateway.Repo repo) {
-        if (repo == null || run.getBranchName() == null) {
-            run.setMergeStatus(ImplementationRun.FAILED);
-            run.setMergeMessage("The GitHub connector is not available");
-        } else {
-            try {
-                String sha = pullRequests.merge(repo, run.getPrNumber(), run.getBranchName(), run.getBaseBranch(),
-                    "PI Co-Pilot: merge approved encryption code (round " + run.getRoundNumber() + ")");
-                run.setMergeStatus(ImplementationRun.MERGED);
-                run.setMergeSha(sha);
-                run.setMergeMessage("Merged " + run.getBranchName() + " into " + run.getBaseBranch());
-                run.setMergedAt(Instant.now());
-            } catch (RuntimeException e) {
-                log.info("Could not merge round {} of workspace {}: {}", run.getRoundNumber(), run.getWorkspaceId(), e.getMessage());
-                run.setMergeStatus(ImplementationRun.FAILED);
-                run.setMergeMessage(e.getMessage());
-            }
-        }
-        runRepository.save(run);
     }
 
     /** Re-queues a failed improvement round, e.g. after configuring the AI key. */

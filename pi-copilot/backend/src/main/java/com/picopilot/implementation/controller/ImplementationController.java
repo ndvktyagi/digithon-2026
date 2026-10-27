@@ -55,12 +55,6 @@ public class ImplementationController {
         finalReviewService.review(workspaceId, runId, request, jwt.getSubject(), jwt.getClaimAsString("preferred_username"));
     }
 
-    @PostMapping("/runs/{runId}/merge")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void merge(@PathVariable UUID workspaceId, @PathVariable UUID runId, @AuthenticationPrincipal Jwt jwt) {
-        finalReviewService.merge(workspaceId, runId, jwt.getSubject());
-    }
-
     @PostMapping("/runs/{runId}/retry")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void retry(@PathVariable UUID workspaceId, @PathVariable UUID runId, @AuthenticationPrincipal Jwt jwt) {

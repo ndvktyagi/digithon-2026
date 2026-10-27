@@ -33,7 +33,6 @@ interface NavItem {
 const STAGE_ROLES: Partial<Record<string, string[]>> = {
   CONNECT: ['APP_OWNER', 'APP_DEVELOPER', 'PLATFORM_ADMIN'],
   ENCRYPTION_SETUP: ['PLATFORM_ADMIN', 'SECURITY_REVIEWER'],
-  ENABLE_ENCRYPTION: ['PLATFORM_ADMIN'],
 };
 
 const LIFECYCLE_TITLE = 'Workspace Lifecycle';

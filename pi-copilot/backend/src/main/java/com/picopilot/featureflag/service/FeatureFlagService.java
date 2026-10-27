@@ -1,15 +1,12 @@
 package com.picopilot.featureflag.service;
 
-import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.exception.InvalidStateException;
 import com.picopilot.common.exception.ResourceNotFoundException;
-import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.featureflag.model.FeatureFlag;
 import com.picopilot.featureflag.repository.FeatureFlagRepository;
 import com.picopilot.identity.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +21,6 @@ public class FeatureFlagService {
 
     private final FeatureFlagRepository flagRepository;
     private final WorkspaceService workspaceService;
-    private final ApplicationEventPublisher events;
 
     @Transactional(readOnly = true)
     public List<FeatureFlag> listFlags(UUID workspaceId, UUID projectId, String userId) {
@@ -55,9 +51,7 @@ public class FeatureFlagService {
         flag.setEnabledAt(Instant.now());
         flag.setEnabledBy(userId);
         log.info("Feature flag {} enabled by {}", flag.getFlagName(), userId);
-        FeatureFlag saved = flagRepository.save(flag);
-        events.publishEvent(new StageWorkCompletedEvent(workspaceId, WorkspaceStage.ENABLE_ENCRYPTION, userId));
-        return saved;
+        return flagRepository.save(flag);
     }
 
     @Transactional

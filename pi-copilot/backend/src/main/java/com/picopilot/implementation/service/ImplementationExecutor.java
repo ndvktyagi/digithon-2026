@@ -48,10 +48,10 @@ import java.util.stream.Collectors;
 import static com.picopilot.project.github.GitHubApiClient.encode;
 
 /**
- * Runs an Encryption Implementation: adds {@code <column>_enc} columns to every database with
- * approved PI, then creates a branch from the connector's branch with the entity changes,
- * the cipher/converter (if the repository has none), key configuration and a Flyway migration,
- * committed in one commit through the GitHub Git Data API.
+ * Runs an Encryption Implementation: adds {@code <column>_enc} columns to every database with approved PI, then
+ * creates a release branch from the connector's branch that changes the application to write both columns and read
+ * the encrypted one (entity fields and callbacks, native queries, cipher, converter, key configuration and a Flyway
+ * migration), committed in one commit through the GitHub Git Data API. The base branch is the rollback.
  */
 @Slf4j
 @Component
@@ -84,7 +84,7 @@ public class ImplementationExecutor {
         final String column;
         String codeStatus = "PENDING";
         String entityFile;
-        /** How reads switch to the encrypted column: ENTITY (PiEncryptionListener) or a NativeQueryEncryptor outcome. */
+        /** How reads switch to the encrypted column: ENTITY (the entity's callbacks) or a NativeQueryEncryptor outcome. */
         String readStatus = "ENTITY";
 
         ColumnPlan(UUID connectorId, String database, String schema, String table, String column) {
@@ -205,9 +205,6 @@ public class ImplementationExecutor {
             try (Connection connection = dbConnectorService.openWriteConnection(connector)) {
                 try (Statement st = connection.createStatement()) {
                     st.setQueryTimeout(60);
-                    // Runtime flags the application polls (encrypted-read cut-over)
-                    st.execute(EncryptionCodeTemplates.FLAG_TABLE_DDL);
-                    if (!ddl.contains(EncryptionCodeTemplates.FLAG_TABLE_DDL)) ddl.add(EncryptionCodeTemplates.FLAG_TABLE_DDL);
                     for (ColumnPlan p : entry.getValue()) {
                         st.execute(p.ddl());
                         ddl.add(p.ddl());
@@ -266,8 +263,8 @@ public class ImplementationExecutor {
         }
         appendLog(logText, "Found " + sources.size() + " JPA entit" + (sources.size() == 1 ? "y" : "ies") + " to inspect");
 
-        // Existing code is never edited. New classes go next to the repository's own PiFieldCipher if it has one,
-        // otherwise into a "security" package beside the entities; they only act while encrypted read is on.
+        // New classes go next to the repository's own PiFieldCipher if it has one, otherwise into a "security"
+        // package beside the entities
         Map<String, String> changes = new LinkedHashMap<>();
         Map<String, String> changeKinds = new LinkedHashMap<>();
         Map<String, String> originals = new LinkedHashMap<>();
@@ -283,11 +280,13 @@ public class ImplementationExecutor {
             appendLog(logText, "Reusing the repository's " + EncryptionCodeTemplates.CIPHER_CLASS + " in " + securityPkg);
         }
 
-        // Map each approved column to its entity field; the entities themselves stay unchanged
+        // Map each approved column to its entity field
+        record EntityChange(String path, String source, JpaEntityAnalyzer.Result result) {}
+        List<EntityChange> entities = new ArrayList<>();
         String moduleRoot = null;
         String persistence = "jakarta.persistence";
         String firstEntity = null;
-        Map<String, Map<String, String>> encryptedFields = new LinkedHashMap<>();
+        int mappedColumns = 0;
         for (Map.Entry<String, List<ColumnPlan>> entry : byTable.entrySet()) {
             String table = entry.getKey();
             Map.Entry<String, String> entity = sources.entrySet().stream()
@@ -310,12 +309,10 @@ public class ImplementationExecutor {
                 p.codeStatus = result.columnOutcomes().getOrDefault(p.column, "NO_FIELD");
                 p.entityFile = path;
             }
-            result.fields().forEach((column, field) -> encryptedFields
-                .computeIfAbsent(result.entityName(), k -> new LinkedHashMap<>())
-                .put(field, column + JpaEntityAnalyzer.ENCRYPTED_SUFFIX));
-            appendLog(logText, "Mapped " + path + " (unchanged): " + result.columnOutcomes());
+            mappedColumns += result.fields().size();
+            entities.add(new EntityChange(path, source, result));
         }
-        if (encryptedFields.isEmpty()) {
+        if (mappedColumns == 0) {
             throw new IllegalStateException("No entity field could be mapped automatically. "
                 + "Check that the GitHub connector's folders include the JPA entities for the approved tables.");
         }
@@ -324,22 +321,39 @@ public class ImplementationExecutor {
             securityPkg = (basePackage.isEmpty() ? "" : basePackage + ".") + "security";
             securityDir = moduleRoot + "src/main/java/" + securityPkg.replace('.', '/') + "/";
         }
+        String converter = (securityPkg.isEmpty() ? "" : securityPkg + ".") + EncryptionCodeTemplates.CONVERTER_CLASS;
+
+        // Entities write both columns and read the encrypted one: a <field>Encrypted copy through the converter,
+        // kept current before every save and read back after every load
+        Map<String, List<String>> fieldsByEntity = new LinkedHashMap<>();
+        for (EntityChange e : entities) {
+            if (e.result().fields().isEmpty()) continue;
+            String updated = JpaEntityAnalyzer.withEncryptedFields(e.source(), e.result().fields(), converter);
+            String entityName = e.result().entityName();
+            fieldsByEntity.put(entityName.substring(entityName.lastIndexOf('.') + 1), List.copyOf(e.result().fields().values()));
+            if (!updated.equals(e.source())) {
+                originals.putIfAbsent(e.path(), e.source());
+                changes.put(e.path(), updated);
+                changeKinds.putIfAbsent(e.path(), "MODIFIED");
+                appendLog(logText, "Entity " + e.path() + " now writes both columns and reads the encrypted one: "
+                    + e.result().columnOutcomes());
+            } else {
+                appendLog(logText, "Entity " + e.path() + " already reads the encrypted columns: " + e.result().columnOutcomes());
+            }
+        }
 
         String pkg = securityPkg;
         String dir = securityDir;
+        String jpa = persistence;
         addGenerated(dir + EncryptionCodeTemplates.CIPHER_CLASS + ".java", false, existing -> EncryptionCodeTemplates.cipher(pkg),
             apiBase, token, repoPath, files, changes, changeKinds, originals, logText);
-        addGenerated(dir + JpaEntityAnalyzer.FLAGS_CLASS + ".java", false, existing -> EncryptionCodeTemplates.flags(pkg),
-            apiBase, token, repoPath, files, changes, changeKinds, originals, logText);
-        addGenerated(dir + EncryptionCodeTemplates.FIELDS_CLASS + ".java", true,
-            existing -> EncryptionCodeTemplates.encryptedFields(pkg, encryptedFields, existing),
-            apiBase, token, repoPath, files, changes, changeKinds, originals, logText);
-        String jpa = persistence;
-        addGenerated(dir + EncryptionCodeTemplates.LISTENER_CLASS + ".java", true, existing -> EncryptionCodeTemplates.listener(pkg, jpa),
+        addGenerated(dir + EncryptionCodeTemplates.CONVERTER_CLASS + ".java", false,
+            existing -> EncryptionCodeTemplates.converter(pkg, jpa),
             apiBase, token, repoPath, files, changes, changeKinds, originals, logText);
 
-        rewriteNativeQueries(apiBase, token, repoPath, files, includes, byTable, pkg, dir,
-            changes, changeKinds, originals, logText);
+        List<String> releaseNotes = new ArrayList<>();
+        rewriteNativeQueries(apiBase, token, repoPath, files, includes, byTable, fieldsByEntity, pkg, dir,
+            changes, changeKinds, originals, releaseNotes, logText);
 
         addKeyConfig(apiBase, token, repoPath, files, moduleRoot, changes, changeKinds, originals, logText);
         addFlywayMigration(files, moduleRoot, plans, changes, changeKinds, logText);
@@ -357,9 +371,9 @@ public class ImplementationExecutor {
             + plans.stream().filter(p -> p.codeStatus.startsWith(JpaEntityAnalyzer.MAPPED))
                 .map(p -> "- " + p.table + "." + p.column + " -> " + p.encryptedColumn())
                 .collect(Collectors.joining("\n"))
-            + "\n\nExisting code is unchanged. The new classes only act while the encrypted-read flag is on;"
-            + "\nwith it off the application behaves exactly as before."
-            + "\nSet PI_LOCAL_ENCRYPTION_KEY to the workspace's LOCAL_DEV key before turning the flag on.";
+            + "\n\nSaves write both the plain and the encrypted column; reads come from the encrypted column."
+            + "\nThe base branch stays the rollback, and its plain columns stay current."
+            + "\nSet PI_LOCAL_ENCRYPTION_KEY to the workspace's LOCAL_DEV key in every environment.";
         String commitSha = github.post(apiBase, token, repoPath + "/git/commits",
             Map.of("message", message, "tree", newTree, "parents", List.of(baseSha))).path("sha").asText();
         // Named after the application being protected; time plus run id keeps names unique
@@ -374,7 +388,7 @@ public class ImplementationExecutor {
                 "title", "PI Co-Pilot: encrypt personal data in " + application,
                 "head", branch,
                 "base", baseBranch,
-                "body", pullRequestBody(application, plans)));
+                "body", pullRequestBody(application, plans, releaseNotes)));
             run.setPrNumber(pr.path("number").asInt());
             run.setPrUrl(pr.path("html_url").asText(null));
             appendLog(logText, "Opened pull request #" + run.getPrNumber() + " for review");
@@ -432,14 +446,16 @@ public class ImplementationExecutor {
     }
 
     /**
-     * Native queries bypass the entity listener. Next to each one that selects approved columns a twin
-     * {@code <name>PiEncrypted} method reading the encrypted columns is added (the original stays as it is), and
-     * PiNativeQueryRouter routes to the twins while encrypted read is on. Each column's readStatus records the outcome.
+     * Native queries bypass the entity's converter: each one that selects approved columns is rewritten in place to
+     * read the encrypted copy, and PiNativeQueryDecryptor decrypts their rows. Each column's readStatus records the
+     * outcome. Queries that will stop working once the plain columns are retired after the release are added to
+     * {@code releaseNotes}, so the reviewer sees them now.
      */
     private void rewriteNativeQueries(String apiBase, String token, String repoPath, Map<String, RepoFile> files,
-                                      List<String> includes, Map<String, List<ColumnPlan>> byTable, String pkg, String dir,
+                                      List<String> includes, Map<String, List<ColumnPlan>> byTable,
+                                      Map<String, List<String>> fieldsByEntity, String pkg, String dir,
                                       Map<String, String> changes, Map<String, String> kinds,
-                                      Map<String, String> originals, StringBuilder logText) {
+                                      Map<String, String> originals, List<String> releaseNotes, StringBuilder logText) {
         List<RepoFile> repoFiles = files.values().stream()
             .filter(f -> f.path().endsWith(".java") && !f.path().contains("/test/"))
             .filter(f -> includes.isEmpty() || includes.stream().anyMatch(i -> f.path().startsWith(i.endsWith("/") ? i : i + "/")))
@@ -452,9 +468,12 @@ public class ImplementationExecutor {
                 .map(p -> p.column).toList();
             if (!mapped.isEmpty()) columnsByTable.put(list.get(0).table, mapped);
         });
-        boolean routed = false;
+        boolean rewrittenAny = false;
         for (RepoFile f : repoFiles) {
             String original = readBlob(apiBase, token, repoPath, f.sha());
+            String name = f.path().substring(f.path().lastIndexOf('/') + 1).replace(".java", "");
+            fieldsByEntity.forEach((entity, fields) -> NativeQueryEncryptor.encryptedFieldQueries(original, entity, fields)
+                .forEach(q -> releaseNotes.add(name + "." + q)));
             if (!NativeQueryEncryptor.hasNativeQuery(original)) continue;
             NativeQueryEncryptor.MultiResult result = NativeQueryEncryptor.encrypt(original, columnsByTable);
             for (List<ColumnPlan> tablePlans : byTable.values()) {
@@ -465,6 +484,8 @@ public class ImplementationExecutor {
                     if (outcome != null && !NativeQueryEncryptor.UNSUPPORTED.equals(p.readStatus)) p.readStatus = outcome;
                 }
             }
+            NativeQueryEncryptor.finalizeQueries(result.source(), columnsByTable).blockers()
+                .forEach(b -> releaseNotes.add(name + "." + b));
             if (!result.outcomes().isEmpty()) {
                 appendLog(logText, "Native queries in " + f.path() + ": " + result.outcomes());
             }
@@ -472,13 +493,13 @@ public class ImplementationExecutor {
                 originals.putIfAbsent(f.path(), original);
                 changes.put(f.path(), result.source());
                 kinds.putIfAbsent(f.path(), "MODIFIED");
-                appendLog(logText, "Added " + NativeQueryEncryptor.METHOD_SUFFIX + " twin methods to " + f.path()
-                    + " (existing methods unchanged)");
+                appendLog(logText, "Native queries in " + f.path() + " now read the encrypted columns");
             }
-            routed |= result.source().contains(NativeQueryEncryptor.METHOD_SUFFIX);
+            rewrittenAny |= result.source().contains(JpaEntityAnalyzer.ENCRYPTED_SUFFIX);
         }
-        if (routed) {
-            addGenerated(dir + EncryptionCodeTemplates.ROUTER_CLASS + ".java", true, existing -> EncryptionCodeTemplates.nativeQueryRouter(pkg),
+        if (rewrittenAny) {
+            addGenerated(dir + EncryptionCodeTemplates.DECRYPTOR_CLASS + ".java", false,
+                existing -> EncryptionCodeTemplates.nativeQueryDecryptor(pkg),
                 apiBase, token, repoPath, files, changes, kinds, originals, logText);
         }
         byTable.values().forEach(list -> list.forEach(p -> {
@@ -487,6 +508,10 @@ public class ImplementationExecutor {
                     + " in a form that could not be rewritten; it keeps reading the plain column");
             }
         }));
+        List<String> distinct = List.copyOf(new java.util.LinkedHashSet<>(releaseNotes));
+        releaseNotes.clear();
+        releaseNotes.addAll(distinct);
+        releaseNotes.forEach(n -> appendLog(logText, "Before the plain columns can be retired: " + n));
     }
 
     /** "Employee Management" -> "employee-management": a valid git branch name segment. */
@@ -508,18 +533,26 @@ public class ImplementationExecutor {
         }
     }
 
-    private static String pullRequestBody(String application, List<ColumnPlan> plans) {
+    private static String pullRequestBody(String application, List<ColumnPlan> plans, List<String> releaseNotes) {
         StringBuilder body = new StringBuilder("Generated by **PI Co-Pilot** to encrypt personal data in **")
-            .append(application).append("**.\n\n| Column | Encrypted column | Code | Encrypted read |\n|---|---|---|---|\n");
+            .append(application).append("**.\n\n| Column | Encrypted column | Code | Reads |\n|---|---|---|---|\n");
         for (ColumnPlan p : plans) {
             body.append("| `").append(p.table).append('.').append(p.column).append("` | `")
                 .append(p.encryptedColumn()).append("` | ").append(p.codeStatus).append(" | ").append(p.readStatus).append(" |\n");
         }
-        return body.append("\nThe encrypted columns already exist in the database. **Existing code is unchanged**: the new ")
-            .append("classes (an entity listener and `PiEncrypted` twins of native queries) only act while the ")
-            .append("`encrypted-read` flag is on, so deploying with the flag off changes nothing. ")
-            .append("Review and approve this change in PI Co-Pilot's Final Review; approval merges it into the base branch.")
-            .toString();
+        body.append("\nThe encrypted columns already exist in the database. With this branch deployed, every save writes ")
+            .append("both the plain and the encrypted column, and reads come from the encrypted column (entities through ")
+            .append("`<field>Encrypted` and `").append(EncryptionCodeTemplates.CONVERTER_CLASS).append("`, native queries ")
+            .append("through `").append(EncryptionCodeTemplates.DECRYPTOR_CLASS).append("`). The base branch is the ")
+            .append("rollback and its plain columns stay current.\n\n")
+            .append("Approve it in PI Co-Pilot's Final Review and deploy this branch. **It is merged only after the release ")
+            .append("succeeds**, in PI Co-Pilot's Finalize step, which then retires the plain columns.");
+        if (!releaseNotes.isEmpty()) {
+            body.append("\n\n**Before the plain columns can be retired** these queries need a change (they compare or ")
+                .append("sort by values that will only exist encrypted):\n");
+            releaseNotes.forEach(n -> body.append("- ").append(n).append('\n'));
+        }
+        return body.toString();
     }
 
     private void addKeyConfig(String apiBase, String token, String repoPath, Map<String, RepoFile> files, String moduleRoot,
@@ -573,7 +606,6 @@ public class ImplementationExecutor {
         }
         String path = dir + "V" + (max + 1) + "__pi_copilot_encrypted_columns.sql";
         Set<String> ddl = new java.util.LinkedHashSet<>();
-        ddl.add(EncryptionCodeTemplates.FLAG_TABLE_DDL);
         plans.stream().map(ColumnPlan::ddl).forEach(ddl::add);
         changes.put(path, EncryptionCodeTemplates.migration(List.copyOf(ddl)));
         kinds.put(path, "ADDED");

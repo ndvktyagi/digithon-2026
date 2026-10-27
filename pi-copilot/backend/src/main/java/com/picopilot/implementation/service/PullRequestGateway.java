@@ -9,8 +9,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -158,17 +160,90 @@ public class PullRequestGateway {
      * @return the merge commit sha
      */
     public String merge(Repo repo, Integer prNumber, String branch, String baseBranch, String title) {
+        return merge(repo, prNumber, branch, baseBranch, title, null);
+    }
+
+    /**
+     * Like {@link #merge(Repo, Integer, String, String, String)}, but guarantees that {@code expectedHead} (a commit just
+     * pushed to the branch) ends up in the base branch. GitHub updates a pull request's head asynchronously after a push,
+     * so merging right away can merge the previous head; this waits for the pull request to show the commit, pins the merge
+     * to it, and checks the base branch afterwards. A pull request merged earlier without the commit is followed by a
+     * direct merge of the branch.
+     *
+     * @return the merge commit sha
+     */
+    public String merge(Repo repo, Integer prNumber, String branch, String baseBranch, String title, String expectedHead) {
+        if (expectedHead == null) return mergeOnce(repo, prNumber, branch, baseBranch, title, null);
+        String sha;
+        if (prNumber != null && !awaitPullRequestHead(repo, prNumber, expectedHead)) {
+            // Merged earlier (without the commit) or GitHub never caught up: merge the branch itself
+            sha = mergeOnce(repo, null, branch, baseBranch, title, null);
+        } else {
+            sha = mergeOnce(repo, prNumber, branch, baseBranch, title, expectedHead);
+        }
+        if (!containsCommit(repo, baseBranch, expectedHead)) {
+            throw new IllegalStateException(baseBranch + " does not contain commit " + expectedHead.substring(0, 7)
+                + " after the merge; merge " + branch + " into " + baseBranch + " manually");
+        }
+        return sha;
+    }
+
+    /** True once the open pull request's head is {@code expectedHead}; false if it is merged/closed or never updates. */
+    private boolean awaitPullRequestHead(Repo repo, int prNumber, String expectedHead) {
+        String pr = repo.repoPath() + "/pulls/" + prNumber;
+        for (int attempt = 0; attempt < 15; attempt++) {
+            JsonNode current = github.get(repo.apiBase(), repo.token(), pr);
+            if (current.path("merged").asBoolean() || !"open".equals(current.path("state").asText())) return false;
+            if (expectedHead.equals(current.path("head").path("sha").asText())) return true;
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** True if {@code commit} is reachable from {@code branch}. */
+    public boolean containsCommit(Repo repo, String branch, String commit) {
+        JsonNode compare = github.get(repo.apiBase(), repo.token(),
+            repo.repoPath() + "/compare/" + commit + "..." + encodePath(branch));
+        String status = compare.path("status").asText();
+        return "identical".equals(status) || "ahead".equals(status);
+    }
+
+    private String mergeOnce(Repo repo, Integer prNumber, String branch, String baseBranch, String title, String headSha) {
         if (prNumber != null) {
             String pr = repo.repoPath() + "/pulls/" + prNumber;
             JsonNode current = github.get(repo.apiBase(), repo.token(), pr);
             if (current.path("merged").asBoolean()) return current.path("merge_commit_sha").asText(null);
-            return github.put(repo.apiBase(), repo.token(), pr + "/merge",
-                Map.of("merge_method", "merge", "commit_title", title)).path("sha").asText(null);
+            Map<String, Object> request = new java.util.HashMap<>();
+            request.put("merge_method", "merge");
+            request.put("commit_title", title);
+            // GitHub refuses the merge if the head is not this commit, instead of merging an older head
+            if (headSha != null) request.put("sha", headSha);
+            return github.put(repo.apiBase(), repo.token(), pr + "/merge", request).path("sha").asText(null);
         }
         JsonNode merged = github.post(repo.apiBase(), repo.token(), repo.repoPath() + "/merges",
             Map.of("base", baseBranch, "head", branch, "commit_message", title));
         // 204 No Content: the base branch already contains the branch
         return merged == null || merged.isMissingNode() ? null : merged.path("sha").asText(null);
+    }
+
+    /** Content of a file on a branch, or null if it does not exist there. */
+    public String readFile(Repo repo, String branch, String path) {
+        JsonNode file;
+        try {
+            file = github.get(repo.apiBase(), repo.token(),
+                repo.repoPath() + "/contents/" + encodePath(path) + "?ref=" + encode(branch));
+        } catch (RuntimeException e) {
+            log.info("Could not read {} on {}: {}", path, branch, e.getMessage());
+            return null;
+        }
+        String content = file.path("content").asText(null);
+        if (content == null || !"base64".equals(file.path("encoding").asText())) return null;
+        return new String(Base64.getMimeDecoder().decode(content), StandardCharsets.UTF_8);
     }
 
     /** Best effort: closes the pull request of a rejected implementation. */

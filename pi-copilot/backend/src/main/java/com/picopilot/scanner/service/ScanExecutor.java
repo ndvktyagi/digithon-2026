@@ -188,6 +188,19 @@ public class ScanExecutor {
                         });
                         continue;
                     }
+                    // Encrypted column whose plain column was dropped after a release: checked by its values
+                    // even when value sampling is off, so it is never offered for encryption again
+                    String releasedBase = PiDetectionRules.encryptedSuffixBase(column.column());
+                    if (releasedBase != null && PiDetectionRules.isTextType(column.dataType())
+                        && PiDetectionRules.isReleasedEncryptedColumn(sampleOrEmpty(connection, column))) {
+                        PiDetectionRules.matchColumn(column.table(), releasedBase).ifPresent(match -> {
+                            PiFinding f = toFinding(job, connector, column, keys, match);
+                            markEncrypted(f, "Encrypted column (holds " + PiDetectionRules.CIPHERTEXT_PREFIX
+                                + " ciphertext); its plain column \"" + releasedBase + "\" was removed after release.");
+                            findings.add(f);
+                        });
+                        continue;
+                    }
                     Optional<PiDetectionRules.Match> match = detect(connection, column, sampleValues);
                     if (match.isEmpty()) continue;
                     PiFinding f = toFinding(job, connector, column, keys, match.get());

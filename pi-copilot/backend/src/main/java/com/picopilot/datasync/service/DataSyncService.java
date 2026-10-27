@@ -225,7 +225,8 @@ public class DataSyncService {
         } catch (SQLException e) {
             String message = e.getMessage() == null ? "query failed" : e.getMessage().lines().findFirst().orElse("");
             if (Objects.equals(e.getSQLState(), "42703")) {
-                message = "Encrypted columns are missing; run the Implementation stage again";
+                message = "Plain or encrypted columns are missing (plain columns are dropped at Finalize; "
+                    + "otherwise run the Implementation stage again)";
             }
             return new TableView(plan.connectorId(), plan.database(), plan.schema(), plan.table(), 0, 0, 0, 0, List.of(), message);
         }

@@ -12,7 +12,6 @@ public enum WorkspaceStage {
     IMPLEMENTATION,
     FINAL_REVIEW,
     DATA_SYNC,
-    ENABLE_ENCRYPTION,
     FINALIZE,
     COMPLETED,
     /** Terminal: the implementation was rejected in Final Review. */

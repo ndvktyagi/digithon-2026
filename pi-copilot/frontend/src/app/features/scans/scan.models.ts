@@ -64,6 +64,12 @@ export interface ScanFinding {
   encryptionState?: 'PLAIN' | 'ENCRYPTED';
   /** For plain PI that already has an encrypted twin: the twin's name. */
   encryptedColumn?: string | null;
+  /** For a column with an encrypted twin: the PI Co-Pilot pull request that encrypted it. */
+  implementedPrNumber?: number | null;
+  implementedPrUrl?: string | null;
+  implementedBranch?: string | null;
+  /** MERGED once that pull request was merged after Final Review approval. */
+  implementedMergeStatus?: string | null;
 }
 
 export interface CreateScanRequest {

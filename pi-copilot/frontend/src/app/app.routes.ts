@@ -145,16 +145,6 @@ export const routes: Routes = [
             (m) => m.BackfillMonitorComponent
           ),
       },
-      { path: 'feature-flags', redirectTo: 'enable-encryption', pathMatch: 'full' },
-      {
-        path: 'enable-encryption',
-        loadComponent: () =>
-          import('./features/feature-flags/feature-flags.component').then(
-            (m) => m.FeatureFlagsComponent
-          ),
-        canActivate: [roleGuard],
-        data: { roles: [UserRole.PLATFORM_ADMIN] },
-      },
       {
         path: 'audit',
         loadComponent: () =>

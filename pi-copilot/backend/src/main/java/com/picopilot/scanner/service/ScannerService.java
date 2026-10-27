@@ -1,5 +1,7 @@
 package com.picopilot.scanner.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picopilot.audit.service.AuditService;
 import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.exception.InvalidStateException;
@@ -12,6 +14,8 @@ import com.picopilot.common.model.Severity;
 import com.picopilot.common.model.UserRole;
 import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.identity.service.WorkspaceService;
+import com.picopilot.implementation.model.ImplementationRun;
+import com.picopilot.implementation.repository.ImplementationRunRepository;
 import com.picopilot.inventory.model.FindingReview;
 import com.picopilot.inventory.model.PiFinding;
 import com.picopilot.inventory.repository.FindingReviewRepository;
@@ -68,6 +72,8 @@ public class ScannerService {
     private final AuditService auditService;
     private final ScanExecutor scanExecutor;
     private final ApplicationEventPublisher events;
+    private final ImplementationRunRepository implementationRunRepository;
+    private final ObjectMapper objectMapper;
 
     /**
      * @param databaseConnectorIds databases to scan, in execution order
@@ -280,7 +286,43 @@ public class ScannerService {
     public List<PiFinding> listFindings(UUID workspaceId, UUID scanJobId, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
         find(workspaceId, scanJobId);
-        return findingRepository.findByScanJobIdOrderByDbSchemaAscTableNameAscColumnNameAsc(scanJobId);
+        List<PiFinding> findings = findingRepository.findByScanJobIdOrderByDbSchemaAscTableNameAscColumnNameAsc(scanJobId);
+        linkImplementations(workspaceId, findings);
+        return findings;
+    }
+
+    /**
+     * For each plain column that already has an encrypted twin, finds the newest implementation pull request
+     * of the workspace that encrypted it, so the reviewer sees where it was done.
+     */
+    private void linkImplementations(UUID workspaceId, List<PiFinding> findings) {
+        if (findings.stream().noneMatch(f -> f.getEncryptedColumn() != null)) return;
+        Map<String, ImplementationRun> byColumn = new HashMap<>();
+        for (ImplementationRun run : implementationRunRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId)) {
+            if (run.getPrNumber() == null || run.getColumnsJson() == null) continue;
+            try {
+                for (JsonNode c : objectMapper.readTree(run.getColumnsJson())) {
+                    byColumn.putIfAbsent(columnKey(c.path("connectorId").asText(), c.path("schema").asText(),
+                        c.path("table").asText(), c.path("column").asText()), run);
+                }
+            } catch (Exception e) {
+                log.debug("Unreadable columns of implementation run {}: {}", run.getId(), e.getMessage());
+            }
+        }
+        for (PiFinding f : findings) {
+            if (f.getEncryptedColumn() == null) continue;
+            ImplementationRun run = byColumn.get(columnKey(String.valueOf(f.getDatabaseConnectorId()), f.getDbSchema(),
+                f.getTableName(), f.getColumnName()));
+            if (run == null) continue;
+            f.setImplementedPrNumber(run.getPrNumber());
+            f.setImplementedPrUrl(run.getPrUrl());
+            f.setImplementedBranch(run.getBranchName());
+            f.setImplementedMergeStatus(run.getMergeStatus());
+        }
+    }
+
+    private static String columnKey(String connectorId, String schema, String table, String column) {
+        return (connectorId + "|" + schema + "|" + table + "|" + column).toLowerCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -311,6 +353,14 @@ public class ScannerService {
             .anyMatch(f -> selected.contains(f.getId()) && PiFinding.ENCRYPTED.equals(f.getEncryptionState()));
         if (selectsEncrypted) {
             throw new ValidationException("Already encrypted columns cannot be selected; select plain PI columns only");
+        }
+        List<String> alreadyDone = findings.stream()
+            .filter(f -> selected.contains(f.getId()) && f.getEncryptedColumn() != null)
+            .map(f -> f.getTableName() + "." + f.getColumnName())
+            .toList();
+        if (!alreadyDone.isEmpty()) {
+            throw new ValidationException("Already encrypted (encrypted copy exists), cannot be selected again: "
+                + String.join(", ", alreadyDone));
         }
 
         Instant now = Instant.now();

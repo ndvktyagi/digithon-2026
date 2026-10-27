@@ -1,7 +1,9 @@
 package com.picopilot.project.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.picopilot.audit.service.AuditService;
 import com.picopilot.common.crypto.SecretCipher;
+import com.picopilot.common.model.Severity;
 import com.picopilot.identity.service.WorkspaceService;
 import com.picopilot.project.github.GitHubDtos.*;
 import com.picopilot.project.model.ApplicationProject;
@@ -19,8 +21,10 @@ import com.picopilot.common.exception.ValidationException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -40,6 +44,7 @@ public class GitHubConnectorService {
     private final WorkspaceService workspaceService;
     private final ApplicationProjectRepository projectRepository;
     private final RepositoryConnectorRepository connectorRepository;
+    private final AuditService auditService;
 
     /** Validates the token and lists every repository it can access. */
     public ConnectResponse connect(UUID workspaceId, ConnectRequest request, String userId) {
@@ -125,6 +130,7 @@ public class GitHubConnectorService {
 
         log.info("User {} saved GitHub connector {} for {}@{}", userId, connector.getId(),
             repo.fullName(), request.branch());
+        audit(connector, "GITHUB_CONNECTOR_SAVED", userId);
         return toSummary(connector);
     }
 
@@ -152,6 +158,7 @@ public class GitHubConnectorService {
         connector = connectorRepository.save(connector);
 
         log.info("User {} updated GitHub connector {}", userId, connectorId);
+        audit(connector, "GITHUB_CONNECTOR_UPDATED", userId);
         return toSummary(connector);
     }
 
@@ -179,8 +186,19 @@ public class GitHubConnectorService {
     @Transactional
     public void delete(UUID workspaceId, UUID connectorId, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
-        connectorRepository.delete(find(workspaceId, connectorId));
+        RepositoryConnector connector = find(workspaceId, connectorId);
+        connectorRepository.delete(connector);
         log.info("User {} deleted GitHub connector {}", userId, connectorId);
+        audit(connector, "GITHUB_CONNECTOR_DELETED", userId);
+    }
+
+    private void audit(RepositoryConnector connector, String action, String userId) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("branch", connector.getBranch());
+        auditService.record(connector.getWorkspaceId(), connector.getProject() == null ? null : connector.getProject().getId(),
+            userId, null, action, "GITHUB_CONNECTOR", connector.getId().toString(),
+            connector.getRepositoryOwner() + "/" + connector.getRepositoryName(), "SUCCESS",
+            action.endsWith("_DELETED") ? Severity.MEDIUM : Severity.INFO, null, null, metadata);
     }
 
     @Transactional(readOnly = true)

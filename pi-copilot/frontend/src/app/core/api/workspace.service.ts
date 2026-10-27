@@ -11,7 +11,6 @@ export type WorkspaceStage =
   | 'IMPLEMENTATION'
   | 'FINAL_REVIEW'
   | 'DATA_SYNC'
-  | 'ENABLE_ENCRYPTION'
   | 'FINALIZE'
   | 'COMPLETED'
   | 'REJECTED';

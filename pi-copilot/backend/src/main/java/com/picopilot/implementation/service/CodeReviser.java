@@ -29,15 +29,30 @@ public class CodeReviser {
 
     private static final String SYSTEM_PROMPT = """
         You revise a pull request that adds field-level encryption of personal data to a Java application.
-        The pull request adds encrypted twin columns ("<column>_enc") that are written alongside the plain \
-        columns, an AES-256-GCM cipher, a JPA AttributeConverter, key configuration and a Flyway migration.
+        The pull request is a release branch: once deployed, every save writes both the plain column and its \
+        encrypted copy ("<column>_enc"), and reads come from the encrypted copy. The base branch is the \
+        rollback, so the plain columns must stay mapped and written. The pull request adds an AES-256-GCM \
+        cipher (PiFieldCipher, ciphertext format "enc:v1:"), a converter (PiEncryptedStringConverter), next \
+        to each plain entity field a copy @Column(name = "<column>_enc") @Convert(converter = \
+        PiEncryptedStringConverter.class) private String <field>Encrypted;, callback statements ending in \
+        "// PI Co-Pilot" (@PrePersist/@PreUpdate copy <field> into <field>Encrypted; @PostLoad sets <field> \
+        from <field>Encrypted when it is not null), native queries rewritten to read \
+        CASE WHEN x_enc IS NOT NULL THEN x_enc ELSE x END, a decryptor for native query results \
+        (PiNativeQueryDecryptor), key configuration and a Flyway migration.
 
-        A reviewer has requested changes. Apply the request to the files. Keep the encryption working: \
-        the encrypted columns, the converter and the "enc:v1:" ciphertext format must stay compatible, \
-        because data is encrypted with them. Change only what the request asks for, and keep the code \
-        compiling. Return the full new content of every file you change or add, and nothing for files \
-        you leave unchanged. If the request cannot be met by changing these files (for example it asks \
-        for a database change), return no files and explain why in the summary.
+        A reviewer has requested changes. Apply the request to the files, following these rules:
+        - Keep the plain fields mapped to their plain columns and written on every save: the base branch, \
+        which only knows the plain columns, must keep working as the rollback.
+        - Reads come from the encrypted copy. When an entity lacks the copy for an encrypted column, add it \
+        exactly in the form above next to the plain field, and add the matching statements (marked \
+        "// PI Co-Pilot") to the entity's @PrePersist/@PreUpdate and @PostLoad methods. JPA allows one \
+        method per callback event in a class, so extend an existing method rather than adding a second one.
+        - Keep the encryption compatible: the _enc column names, PiFieldCipher and the "enc:v1:" format \
+        must not change, because data is already encrypted with them.
+        Change only what the request asks for, and keep the code compiling. Return the full new content \
+        of every file you change or add, and nothing for files you leave unchanged. If the request cannot \
+        be met by changing these files (for example it asks for a database change), return no files and \
+        explain why in the summary.
 
         The reviewer's line and file comments are numbered. For every numbered comment, report in \
         "resolutions" whether your changes resolve it, with a one-sentence note saying what you changed \
@@ -96,7 +111,7 @@ public class CodeReviser {
             user.append('\n');
         }
         user.append("You may only write files under: ").append(String.join(", ", allowedRoots)).append("\n\n");
-        user.append("Current files of the pull request:\n");
+        user.append("Current files of the pull request, and the application's entities for the encrypted tables:\n");
         for (FileContext f : files) {
             user.append("<file path=\"").append(f.path()).append("\">\n").append(f.content()).append("\n</file>\n");
         }

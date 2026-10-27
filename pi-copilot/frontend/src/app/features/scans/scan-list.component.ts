@@ -208,6 +208,10 @@ export class ScanListComponent implements OnInit, OnDestroy {
     return this.scans().filter((s) => s.status === 'COMPLETED' && s.approvalState === state).length;
   }
 
+  /** Entering Scans opens the latest scan; returning from a scan's page keeps the list. */
+  private autoOpenLatest = !this.reviewMode
+    && !/^\/scans\/[^/]+/.test(this.router.currentNavigation()?.previousNavigation?.finalUrl?.toString() ?? '');
+
   ngOnInit(): void {
     this.load();
   }
@@ -223,6 +227,14 @@ export class ScanListComponent implements OnInit, OnDestroy {
       next: (scans) => {
         this.scans.set(scans);
         this.loading.set(false);
+        if (this.autoOpenLatest) {
+          this.autoOpenLatest = false;
+          const latest = [...scans].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+          if (latest) {
+            this.router.navigate(['/scans', latest.id], { replaceUrl: true });
+            return;
+          }
+        }
         // Initiated scans wait for the user, so only Processing ones need polling
         if (!scans.some((s) => s.status === 'RUNNING')) {
           this.pollSub?.unsubscribe();

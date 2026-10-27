@@ -197,7 +197,7 @@ interface DatabaseGroup {
 
             <article *ngFor="let t of db.tables" class="table-card" [class.selected]="tableState(t) !== 'none'">
               <header class="table-head" (click)="toggleExpanded(t.key)">
-                <mat-checkbox *ngIf="reviewing() && t.findings.length" (click)="$event.stopPropagation()"
+                <mat-checkbox *ngIf="reviewing() && selectableIn(t).length" (click)="$event.stopPropagation()"
                               [checked]="tableState(t) === 'all'" [indeterminate]="tableState(t) === 'some'"
                               (change)="toggleTable(t, $event.checked)" [attr.aria-label]="'Select table ' + t.table">
                 </mat-checkbox>
@@ -225,8 +225,13 @@ interface DatabaseGroup {
                   <tbody>
                     <tr *ngFor="let f of t.findings" [class.sel]="selected().has(f.id)">
                       <td *ngIf="reviewing()" class="cb">
-                        <mat-checkbox [checked]="selected().has(f.id)" (change)="toggleFinding(f.id)"
+                        <mat-checkbox *ngIf="selectable(f); else doneCell" [checked]="selected().has(f.id)"
+                                      (change)="toggleFinding(f.id)"
                                       [attr.aria-label]="'Select column ' + f.columnName"></mat-checkbox>
+                        <ng-template #doneCell>
+                          <mat-checkbox [checked]="false" disabled [matTooltip]="doneTooltip(f)"
+                                        [attr.aria-label]="'Column ' + f.columnName + ' is already encrypted'"></mat-checkbox>
+                        </ng-template>
                       </td>
                       <td>
                         <span class="col-name">{{ f.columnName }}</span>
@@ -236,6 +241,19 @@ interface DatabaseGroup {
                         <span class="twin" *ngIf="f.encryptedColumn" [matTooltip]="'This column already has an encrypted copy: ' + f.encryptedColumn">
                           <mat-icon>enhanced_encryption</mat-icon>{{ f.encryptedColumn }}
                         </span>
+                        <div class="done-note" *ngIf="f.encryptedColumn">
+                          <mat-icon>verified</mat-icon>
+                          <ng-container *ngIf="f.implementedPrNumber; else noPr">
+                            Already encrypted · implemented in
+                            <a *ngIf="f.implementedPrUrl; else prText" [href]="f.implementedPrUrl" target="_blank" rel="noopener"
+                               (click)="$event.stopPropagation()">PR #{{ f.implementedPrNumber }}</a>
+                            <ng-template #prText>PR #{{ f.implementedPrNumber }}</ng-template>
+                            <span *ngIf="f.implementedBranch"> ({{ f.implementedBranch }})</span>
+                            <span class="state" [class.merged]="f.implementedMergeStatus === 'MERGED'">
+                              {{ f.implementedMergeStatus === 'MERGED' ? 'merged' : 'not merged yet' }}</span>
+                          </ng-container>
+                          <ng-template #noPr>Already encrypted into {{ f.encryptedColumn }} · not selectable</ng-template>
+                        </div>
                       </td>
                       <td class="muted">{{ f.dataType }}{{ f.nullable ? '' : ' · not null' }}</td>
                       <td><span class="cat">{{ format(f.candidateCategory) }}</span></td>
@@ -308,6 +326,11 @@ interface DatabaseGroup {
     .twin { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
       background: #e0f2fe; color: #0369a1; font-size: 11px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .twin mat-icon { font-size: 13px; width: 13px; height: 13px; }
+    .done-note { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 4px; font-size: 12px; color: #047857; }
+    .done-note mat-icon { font-size: 14px; width: 14px; height: 14px; }
+    .done-note a { color: inherit; }
+    .state { padding: 0 4px; color: #b45309; }
+    .state.merged { color: #047857; }
     .enc-section { border-top: 1px solid var(--pc-border); background: #f8fbff; }
     .enc-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 12px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.04em; color: #0369a1; }
@@ -499,6 +522,8 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   /** Plain PI, the only columns that can be selected for encryption. */
   readonly plainFindings = computed(() => this.findings().filter((f) => f.encryptionState !== 'ENCRYPTED'));
   readonly encryptedFindings = computed(() => this.findings().filter((f) => f.encryptionState === 'ENCRYPTED'));
+  /** Plain PI that is not encrypted yet: a column with an "_enc" twin was already done and is not selectable. */
+  readonly selectableFindings = computed(() => this.plainFindings().filter((f) => this.selectable(f)));
   readonly highCount = computed(() => this.plainFindings().filter((f) => f.confidence === 'HIGH').length);
   readonly tableCount = computed(() => new Set(this.plainFindings().map((f) => this.tableKey(f))).size);
   readonly approvedColumns = computed(() => this.findings().filter((f) => f.approved).length);
@@ -580,7 +605,21 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   }
 
   private resetSelection(): void {
-    this.selected.set(new Set(this.findings().filter((f) => f.approved).map((f) => f.id)));
+    this.selected.set(new Set(this.findings().filter((f) => f.approved && this.selectable(f)).map((f) => f.id)));
+  }
+
+  selectable(f: ScanFinding): boolean {
+    return f.encryptionState !== 'ENCRYPTED' && !f.encryptedColumn;
+  }
+
+  selectableIn(t: TableGroup): ScanFinding[] {
+    return t.findings.filter((f) => this.selectable(f));
+  }
+
+  doneTooltip(f: ScanFinding): string {
+    return f.implementedPrNumber
+      ? `Already encrypted into ${f.encryptedColumn} by PR #${f.implementedPrNumber}`
+      : `Already encrypted into ${f.encryptedColumn}`;
   }
 
   private toTableGroup(key: string, findings: ScanFinding[]): TableGroup {
@@ -601,14 +640,15 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
 
   tableState(t: TableGroup): 'all' | 'some' | 'none' {
     const sel = this.reviewing() ? this.selected() : new Set(t.findings.filter((f) => f.approved).map((f) => f.id));
-    const n = t.findings.filter((f) => sel.has(f.id)).length;
-    return n === 0 ? 'none' : n === t.findings.length ? 'all' : 'some';
+    const candidates = this.reviewing() ? this.selectableIn(t) : t.findings;
+    const n = candidates.filter((f) => sel.has(f.id)).length;
+    return n === 0 ? 'none' : n === candidates.length ? 'all' : 'some';
   }
 
   toggleTable(t: TableGroup, checked: boolean): void {
     this.selected.update((s) => {
       const next = new Set(s);
-      t.findings.forEach((f) => checked ? next.add(f.id) : next.delete(f.id));
+      this.selectableIn(t).forEach((f) => checked ? next.add(f.id) : next.delete(f.id));
       return next;
     });
   }
@@ -622,11 +662,11 @@ export class ScanDetailComponent implements OnInit, OnDestroy {
   }
 
   selectAll(all: boolean): void {
-    this.selected.set(all ? new Set(this.plainFindings().map((f) => f.id)) : new Set());
+    this.selected.set(all ? new Set(this.selectableFindings().map((f) => f.id)) : new Set());
   }
 
   selectHighConfidence(): void {
-    this.selected.set(new Set(this.plainFindings().filter((f) => f.confidence === 'HIGH').map((f) => f.id)));
+    this.selected.set(new Set(this.selectableFindings().filter((f) => f.confidence === 'HIGH').map((f) => f.id)));
   }
 
   isExpanded(key: string): boolean {

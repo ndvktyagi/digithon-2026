@@ -57,6 +57,24 @@ spring:
     caffeine:
       spec: maximumSize=1000,expireAfterAccess=600s
 
+  # SMTP server for audit trail emails (picopilot.audit.email). Example for Gmail:
+  # MAIL_HOST=smtp.gmail.com, MAIL_PORT=587, MAIL_USERNAME=you@gmail.com, MAIL_PASSWORD=<app password>
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:support.security.pi@gmail.com}
+    password: ${MAIL_PASSWORD:Admin@123}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_STARTTLS:true}
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+
 management:
   endpoints:
     web:
@@ -77,6 +95,9 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+    # An unreachable SMTP server must not mark the application as down
+    mail:
+      enabled: false
 
 picopilot:
   connectors:
@@ -139,6 +160,17 @@ picopilot:
     api-base-url: https://api.github.com
   audit:
     retention-days: 2555
+    # Emails for audit trail events, sent through spring.mail after the event is saved
+    email:
+      enabled: ${AUDIT_EMAIL_ENABLED:true}
+      from: ${AUDIT_EMAIL_FROM:${MAIL_USERNAME:pi-copilot@localhost}}
+      # Comma-separated recipients
+      to: ${AUDIT_EMAIL_TO:vishaltyagi11187@gmail.com}
+      # Comma-separated actions to email (e.g. SCAN_APPROVED,FINAL_REVIEW_APPROVE), or * for every action
+      actions: ${AUDIT_EMAIL_ACTIONS:*}
+      # Lowest severity that is emailed: INFO, LOW, MEDIUM, HIGH or CRITICAL
+      min-severity: ${AUDIT_EMAIL_MIN_SEVERITY:INFO}
+      subject-prefix: "[PI Security Co-Pilot]"
   feature-flags:
     default-rollback-window-hours: 72
 

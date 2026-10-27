@@ -125,6 +125,21 @@ public final class PiDetectionRules {
         return tableColumns.contains(base) ? column.substring(0, base.length()) : null;
     }
 
+    /** "email_enc" -> "email" for any column with the encrypted suffix, whether or not "email" still exists. */
+    public static String encryptedSuffixBase(String column) {
+        String lower = column.toLowerCase(Locale.ROOT);
+        if (!lower.endsWith(ENCRYPTED_SUFFIX) || lower.length() == ENCRYPTED_SUFFIX.length()) return null;
+        return column.substring(0, column.length() - ENCRYPTED_SUFFIX.length());
+    }
+
+    /**
+     * True for a released encrypted column whose plain column was dropped: its values are PI Co-Pilot ciphertext,
+     * or it has no values to check. A "_enc" column holding plain text is not treated as encrypted.
+     */
+    public static boolean isReleasedEncryptedColumn(List<String> samples) {
+        return samples.stream().allMatch(v -> v == null || v.isBlank()) || looksEncrypted(samples);
+    }
+
     /** True when most sampled non-null values are PI Co-Pilot ciphertext. */
     public static boolean looksEncrypted(List<String> samples) {
         List<String> values = samples.stream().filter(v -> v != null && !v.isBlank()).toList();

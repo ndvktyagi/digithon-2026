@@ -2,12 +2,15 @@ package com.picopilot.implementation.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class JpaEntityAnalyzerTest {
+
+    private static final String CONVERTER = "com.digithon.hr.security.PiEncryptedStringConverter";
 
     private static final String EMPLOYEE = """
         package com.digithon.hr.entity;
@@ -46,6 +49,12 @@ class JpaEntityAnalyzerTest {
         }
         """;
 
+    private static Map<String, String> fields(String... columnAndField) {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (int i = 0; i < columnAndField.length; i += 2) m.put(columnAndField[i], columnAndField[i + 1]);
+        return m;
+    }
+
     @Test
     void mapsEntityToTable() {
         assertThat(JpaEntityAnalyzer.isEntity(EMPLOYEE)).isTrue();
@@ -55,7 +64,7 @@ class JpaEntityAnalyzerTest {
     }
 
     @Test
-    void mapsColumnsToFieldsWithoutChangingTheEntity() {
+    void mapsColumnsToFields() {
         JpaEntityAnalyzer.Result r = JpaEntityAnalyzer.analyze(EMPLOYEE, List.of("phone", "email", "first_name"));
         assertThat(r.entityName()).isEqualTo("com.digithon.hr.entity.Employee");
         assertThat(r.fields()).containsExactlyInAnyOrderEntriesOf(
@@ -72,7 +81,7 @@ class JpaEntityAnalyzerTest {
     }
 
     @Test
-    void skipsColumnsWhoseEncryptedTwinTheEntityAlreadyMaps() {
+    void skipsColumnsWhoseEncryptedColumnTheEntityAlreadyMapsItsOwnWay() {
         String mapped = EMPLOYEE.replace("    protected Employee() { }",
             "    @Column(name = \"email_enc\")\n    private String emailEnc;\n\n    protected Employee() { }");
         JpaEntityAnalyzer.Result r = JpaEntityAnalyzer.analyze(mapped, List.of("email"));
@@ -81,27 +90,83 @@ class JpaEntityAnalyzerTest {
     }
 
     @Test
-    void generatedRegistryKeepsEarlierEntries() {
-        String first = EncryptionCodeTemplates.encryptedFields("com.digithon.hr.security",
-            Map.of("com.digithon.hr.entity.Employee", Map.of("email", "email_enc")), null);
-        assertThat(first).contains("add(\"com.digithon.hr.entity.Employee\", \"email\", \"email_enc\");");
-        String second = EncryptionCodeTemplates.encryptedFields("com.digithon.hr.security",
-            Map.of("com.digithon.hr.entity.Employee", Map.of("phone", "phone_enc")), first);
-        assertThat(second).contains("\"email\", \"email_enc\"").contains("\"phone\", \"phone_enc\"");
+    void writesBothColumnsAndReadsTheEncryptedOne() {
+        String src = JpaEntityAnalyzer.withEncryptedFields(EMPLOYEE, fields("email", "email", "phone", "phone"), CONVERTER);
+        // the plain fields keep their mapping, so the plain columns stay current for the rollback
+        assertThat(src).contains("    @Column(nullable = false, length = 180)\n    private String email;\n")
+            .contains("    @Column(name = \"email_enc\")\n    @Convert(converter = PiEncryptedStringConverter.class)\n"
+                + "    private String emailEncrypted;\n")
+            .contains("    @Column(name = \"phone_enc\")\n    @Convert(converter = PiEncryptedStringConverter.class)\n"
+                + "    private String phoneEncrypted;\n")
+            .contains("    @PrePersist\n    @PreUpdate\n    void piCopilotEncrypt() {\n"
+                + "        this.emailEncrypted = this.email; // PI Co-Pilot\n"
+                + "        this.phoneEncrypted = this.phone; // PI Co-Pilot\n    }\n")
+            .contains("    @PostLoad\n    void piCopilotDecrypt() {\n"
+                + "        if (this.emailEncrypted != null) this.email = this.emailEncrypted; // PI Co-Pilot\n")
+            .contains("import com.digithon.hr.security.PiEncryptedStringConverter;")
+            .endsWith("    }\n}\n");
+        // only additions: every original line is still there, in order
+        assertThat(isSubsequence(EMPLOYEE.lines().toList(), src.lines().toList())).isTrue();
     }
 
     @Test
-    void generatedCodeOnlyActsWhileTheFlagIsOn() {
-        String listener = EncryptionCodeTemplates.listener("com.digithon.hr.security", "jakarta.persistence");
-        assertThat(listener).contains("import jakarta.persistence.EntityManagerFactory;");
-        // every event handler starts with the flag check
-        assertThat(listener).contains("public void onPostInsert(PostInsertEvent event) {\n        if (PiEncryptionFlags.encryptedRead()) {")
-            .contains("public void onPostUpdate(PostUpdateEvent event) {\n        if (PiEncryptionFlags.encryptedRead()) {")
-            .contains("public void onPostLoad(PostLoadEvent event) {\n        if (!PiEncryptionFlags.encryptedRead()) return;");
-        String router = EncryptionCodeTemplates.nativeQueryRouter("com.digithon.hr.security");
-        assertThat(router).contains("if (!PiEncryptionFlags.encryptedRead()) return invocation.proceed();");
-        // the cipher no longer needs the key at startup
-        assertThat(EncryptionCodeTemplates.cipher("com.digithon.hr.security"))
-            .contains("public PiFieldCipher(Environment environment)").doesNotContain("@Value");
+    void extendsExistingCallbacksInsteadOfAddingSecondOnes() {
+        String withCallback = EMPLOYEE.replace("    protected Employee() { }",
+            "    @PrePersist\n    void onCreate() {\n        joiningDate = LocalDate.now();\n    }\n\n    protected Employee() { }");
+        String src = JpaEntityAnalyzer.withEncryptedFields(withCallback, fields("email", "email"), CONVERTER);
+        assertThat(src).contains("    @PrePersist\n    void onCreate() {\n        this.emailEncrypted = this.email; // PI Co-Pilot\n"
+            + "        joiningDate = LocalDate.now();\n    }");
+        // JPA allows one method per event: the generated method only covers the missing ones
+        assertThat(count(src, "@PrePersist")).isEqualTo(1);
+        assertThat(src).contains("    @PreUpdate\n    void piCopilotEncrypt() {").contains("    @PostLoad\n    void piCopilotDecrypt() {");
+    }
+
+    @Test
+    void isIdempotentAndAddsLaterColumnsToTheSameMethods() {
+        String once = JpaEntityAnalyzer.withEncryptedFields(EMPLOYEE, fields("email", "email"), CONVERTER);
+        assertThat(JpaEntityAnalyzer.withEncryptedFields(once, fields("email", "email"), CONVERTER)).isEqualTo(once);
+        assertThat(JpaEntityAnalyzer.analyze(once, List.of("email")).columnOutcomes()).containsEntry("email", "MAPPED:email");
+
+        String twice = JpaEntityAnalyzer.withEncryptedFields(once, fields("email", "email", "phone", "phone"), CONVERTER);
+        assertThat(count(twice, "void piCopilotEncrypt()")).isEqualTo(1);
+        assertThat(count(twice, "void piCopilotDecrypt()")).isEqualTo(1);
+        assertThat(twice).contains("this.phoneEncrypted = this.phone; // PI Co-Pilot")
+            .contains("if (this.phoneEncrypted != null) this.phone = this.phoneEncrypted; // PI Co-Pilot");
+        assertThat(count(twice, "this.emailEncrypted = this.email;")).isEqualTo(1);
+    }
+
+    @Test
+    void addsImportsWhenThereIsNoWildcard() {
+        String explicit = EMPLOYEE.replace("import jakarta.persistence.*;", "import jakarta.persistence.Entity;");
+        String src = JpaEntityAnalyzer.withEncryptedFields(explicit, fields("email", "email"), CONVERTER);
+        assertThat(src).contains("import jakarta.persistence.Column;").contains("import jakarta.persistence.Convert;")
+            .contains("import jakarta.persistence.PrePersist;").contains("import jakarta.persistence.PreUpdate;")
+            .contains("import jakarta.persistence.PostLoad;");
+    }
+
+    @Test
+    void generatedClassesHaveNoFlag() {
+        String cipher = EncryptionCodeTemplates.cipher("com.digithon.hr.security");
+        assertThat(cipher).contains("public PiFieldCipher(Environment environment)").doesNotContain("@Value")
+            .doesNotContain("encrypted read");
+        assertThat(EncryptionCodeTemplates.converter("com.digithon.hr.security", "jakarta.persistence"))
+            .contains("implements AttributeConverter<String, String>").doesNotContain("PiEncryptionFlags");
+        assertThat(EncryptionCodeTemplates.migration(List.of("ALTER TABLE x ADD COLUMN IF NOT EXISTS y_enc text;")))
+            .doesNotContain("pi_feature_flag");
+    }
+
+    /** True if every line of {@code original} appears in {@code updated}, in the same order. */
+    private static boolean isSubsequence(List<String> original, List<String> updated) {
+        int i = 0;
+        for (String line : updated) {
+            if (i < original.size() && original.get(i).equals(line)) i++;
+        }
+        return i == original.size();
+    }
+
+    private static int count(String s, String needle) {
+        int n = 0;
+        for (int i = s.indexOf(needle); i >= 0; i = s.indexOf(needle, i + 1)) n++;
+        return n;
     }
 }

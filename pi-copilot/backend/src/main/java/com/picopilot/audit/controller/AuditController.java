@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -46,6 +47,7 @@ public class AuditController {
     public PagedResponse<AuditEvent> searchEvents(
             @PathVariable UUID workspaceId,
             @RequestParam(required = false) String action,
+            @RequestParam(required = false) String outcome,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @AuthenticationPrincipal Jwt jwt,
@@ -54,13 +56,16 @@ public class AuditController {
         if (from != null && to != null) {
             page = auditService.getEventsByTimeRange(workspaceId, from, to,
                 jwt.getSubject(), pageable);
-        } else if (action != null) {
-            page = auditService.getEventsByAction(workspaceId, action,
-                jwt.getSubject(), pageable);
         } else {
-            page = auditService.getWorkspaceEvents(workspaceId, jwt.getSubject(), pageable);
+            page = auditService.search(workspaceId, action, outcome, jwt.getSubject(), pageable);
         }
         return PagedResponse.of(page.getContent(), page);
+    }
+
+    /** Actions recorded in this workspace, for the filter list. */
+    @GetMapping("/workspaces/{workspaceId}/audit-events/actions")
+    public List<String> actions(@PathVariable UUID workspaceId, @AuthenticationPrincipal Jwt jwt) {
+        return auditService.actions(workspaceId, jwt.getSubject());
     }
 
     @GetMapping("/workspaces/{workspaceId}/reports/audit")

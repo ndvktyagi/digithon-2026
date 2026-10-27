@@ -9,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -112,4 +113,18 @@ public class PiFinding extends TenantAwareEntity {
     /** Selected by the reviewer for encryption when the scan was approved. */
     @Column(nullable = false)
     private boolean approved;
+
+    /** For a column with an encrypted twin: the pull request that implemented it, if PI Co-Pilot made one. */
+    @Transient
+    private Integer implementedPrNumber;
+
+    @Transient
+    private String implementedPrUrl;
+
+    @Transient
+    private String implementedBranch;
+
+    /** MERGED once the approved pull request is merged into the base branch. */
+    @Transient
+    private String implementedMergeStatus;
 }

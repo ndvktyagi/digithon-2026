@@ -1,14 +1,16 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, Injectable, OnInit, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatRadioModule } from '@angular/material/radio';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { Store } from '@ngrx/store';
-import { combineLatest } from 'rxjs';
+import { combineLatest, Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { PageHeaderComponent } from '../../shared/components/page-header/page-header.component';
 import {
@@ -24,12 +26,61 @@ interface StageView extends StageDefinition {
   status: StageStatus | undefined;
 }
 
+/**
+ * Finalize, after the approved release branch was deployed: the user reports the release as succeeded (clean up,
+ * merge, then drop the plain columns) or failed (close the pull request, optionally drop the encrypted columns).
+ */
+interface FinalizeStatus {
+  stage: WorkspaceStage;
+  implementationRunId?: string;
+  baseBranch?: string;
+  releaseBranch?: string;
+  releasePrNumber?: number;
+  releasePrUrl?: string;
+  columns: string[];
+  releaseOutcome?: 'SUCCEEDED' | 'FAILED' | null;
+  problems: string[];
+  canChooseOutcome: boolean;
+  canCleanUp: boolean;
+  canDropColumns: boolean;
+  codeStatus?: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  commitSha?: string;
+  mergeStatus?: 'MERGED' | 'FAILED' | 'CLOSED';
+  mergeMessage?: string;
+  changedFiles: string[];
+  warnings: string[];
+  columnsStatus?: 'PENDING' | 'DROPPED' | 'KEPT' | 'FAILED';
+  droppedColumns: string[];
+  errorMessage?: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class FinalizeApi {
+  private readonly http = inject(HttpClient);
+
+  status(workspaceId: string): Observable<FinalizeStatus> {
+    return this.http.get<FinalizeStatus>(`/workspaces/${workspaceId}/finalize`);
+  }
+
+  releaseSucceeded(workspaceId: string, acceptQueryWarnings: boolean): Observable<FinalizeStatus> {
+    return this.http.post<FinalizeStatus>(`/workspaces/${workspaceId}/finalize/release-succeeded`, { acceptQueryWarnings });
+  }
+
+  releaseFailed(workspaceId: string, dropEncryptedColumns: boolean): Observable<FinalizeStatus> {
+    return this.http.post<FinalizeStatus>(`/workspaces/${workspaceId}/finalize/release-failed`, { dropEncryptedColumns });
+  }
+
+  dropColumns(workspaceId: string, deployed: boolean): Observable<FinalizeStatus> {
+    return this.http.post<FinalizeStatus>(`/workspaces/${workspaceId}/finalize/columns`, { deployed });
+  }
+}
+
 @Component({
   selector: 'app-workspace-lifecycle',
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule, MatIconModule, MatButtonModule,
-    MatCheckboxModule, MatProgressBarModule, PageHeaderComponent,
+    MatCheckboxModule, MatRadioModule, MatProgressBarModule, PageHeaderComponent,
   ],
   template: `
     <div class="pc-page">
@@ -93,23 +144,125 @@ interface StageView extends StageDefinition {
                   {{ stateLabel(stateClass(s)) }}
                 </span>
               </div>
-              <p class="stage-desc">{{ s.description }}</p>
+              <p class="stage-desc" *ngIf="!finalizing(s)">{{ s.description }}</p>
 
-              <div class="stage-detail" *ngIf="s.status as st" [class.ready]="st.ready">
+              <div class="stage-detail" *ngIf="!finalizing(s) && s.status as st" [class.ready]="st.ready">
                 <mat-icon>{{ st.ready ? 'check_circle' : 'radio_button_unchecked' }}</mat-icon>
                 <span>{{ st.detail }}</span>
               </div>
 
-              <ng-container *ngIf="s.status?.state === 'CURRENT'">
-                <mat-checkbox *ngIf="s.stage === 'FINALIZE'" class="finalize-confirm" [(ngModel)]="finalizeConfirmed">
-                  I confirm the duplicate code paths and plain-text database columns have been removed.
-                </mat-checkbox>
+              <ng-container *ngIf="s.status?.state === 'CURRENT' && s.stage === 'FINALIZE'">
+                <ng-container *ngIf="finalize() as f">
+                  <ul class="finalize-problems" *ngIf="f.problems.length">
+                    <li *ngFor="let p of f.problems"><mat-icon>error_outline</mat-icon>{{ p }}</li>
+                  </ul>
+
+                  <p class="step-desc" *ngIf="f.releaseBranch">
+                    Release <code>{{ f.releaseBranch }}</code>
+                    <a *ngIf="f.releasePrUrl" [href]="f.releasePrUrl" target="_blank" rel="noopener">(pull request #{{ f.releasePrNumber }})</a>
+                    into <code>{{ f.baseBranch }}</code>. Deploy it, then report how the release went.
+                  </p>
+
+                  <mat-radio-group class="outcome-grid" [ngModel]="selectedOutcome(f)" (ngModelChange)="outcome = $event"
+                                   [disabled]="outcomeLocked(f)" aria-label="How did the release go?">
+                    <div class="outcome" [class.selected]="selectedOutcome(f) === 'SUCCEEDED'" [class.locked]="outcomeLocked(f)">
+                      <mat-radio-button value="SUCCEEDED" class="outcome-title">Release succeeded</mat-radio-button>
+                      <p class="step-desc">
+                        Brings every encrypted copy up to date and makes the plain columns nullable, pushes a cleanup to the
+                        release branch (fields map only to their <code>_enc</code> columns, native queries read only them, and a
+                        migration drops the plain columns), then merges the pull request into <code>{{ f.baseBranch }}</code>.
+                      </p>
+                      <div class="step-warnings" *ngIf="f.warnings.length">
+                        <strong>Queries on encrypted fields:</strong> they compare or sort by values that will only exist
+                        encrypted, so they can no longer match. Change them on the release branch, or continue anyway.
+                        <ul><li *ngFor="let w of f.warnings">{{ w }}</li></ul>
+                        <mat-checkbox [(ngModel)]="acceptQueryWarnings"
+                                      [disabled]="outcomeLocked(f) || selectedOutcome(f) !== 'SUCCEEDED'">Continue anyway</mat-checkbox>
+                      </div>
+                      <p class="step-error" *ngIf="f.codeStatus === 'FAILED' && f.errorMessage">{{ f.errorMessage }}</p>
+                    </div>
+
+                    <div class="outcome" [class.selected]="selectedOutcome(f) === 'FAILED'" [class.locked]="outcomeLocked(f)">
+                      <mat-radio-button value="FAILED" class="outcome-title">Release failed</mat-radio-button>
+                      <p class="step-desc">
+                        Closes the pull request without merging, so <code>{{ f.baseBranch }}</code> stays the version to redeploy,
+                        and removes PI Co-Pilot's migrations from the Flyway history so it starts. The plain columns are untouched.
+                      </p>
+                      <mat-checkbox class="finalize-confirm" [(ngModel)]="dropEncrypted"
+                                    [disabled]="outcomeLocked(f) || selectedOutcome(f) !== 'FAILED'">
+                        Also drop the encrypted columns ({{ encryptedColumns(f) }}). This cannot be undone.
+                      </mat-checkbox>
+                    </div>
+                  </mat-radio-group>
+
+                  <div class="stage-actions" *ngIf="!outcomeLocked(f) || busy()">
+                    <button mat-flat-button type="button" [color]="selectedOutcome(f) === 'FAILED' ? 'warn' : 'primary'"
+                            [disabled]="!canSubmitOutcome(f)" (click)="submitOutcome()">
+                      <mat-icon>{{ selectedOutcome(f) === 'FAILED' ? 'undo' : 'task_alt' }}</mat-icon>
+                      {{ selectedOutcome(f) === 'FAILED' ? 'Confirm release failed'
+                        : selectedOutcome(f) === 'SUCCEEDED' ? 'Confirm release succeeded' : 'Choose how the release went' }}
+                    </button>
+                  </div>
+
+                  <ol class="finalize-steps" *ngIf="!choosing(f)">
+                    <li [class.done]="codeMerged(f)">
+                      <div class="step-title">
+                        <mat-icon>{{ codeMerged(f) ? 'check_circle' : 'looks_one' }}</mat-icon>
+                        Clean up and merge the release
+                      </div>
+                      <div class="step-result">
+                        <span *ngIf="f.commitSha">Cleanup <code>{{ f.commitSha.substring(0, 7) }}</code></span>
+                        <span class="pill" [class.ok]="f.mergeStatus === 'MERGED'" [class.bad]="f.mergeStatus === 'FAILED'">
+                          {{ f.mergeStatus === 'MERGED' ? 'Merged into ' + f.baseBranch : f.mergeStatus === 'FAILED' ? 'Not merged' : 'Pushed' }}
+                        </span>
+                      </div>
+                      <p class="step-error" *ngIf="f.mergeStatus === 'FAILED' && f.mergeMessage">{{ f.mergeMessage }}</p>
+                      <details *ngIf="f.changedFiles.length">
+                        <summary>{{ f.changedFiles.length }} file(s) changed</summary>
+                        <ul class="file-list">
+                          <li *ngFor="let c of f.changedFiles">
+                            <span class="kind">{{ c.split('|')[0] }}</span> <code>{{ c.split('|')[1] }}</code>
+                          </li>
+                        </ul>
+                      </details>
+                      <div class="stage-actions" *ngIf="!codeMerged(f)">
+                        <button mat-flat-button color="primary" type="button" [disabled]="busy()" (click)="releaseSucceeded()">
+                          <mat-icon>merge</mat-icon> Retry merge
+                        </button>
+                      </div>
+                    </li>
+
+                    <li [class.upcoming]="!codeMerged(f)">
+                      <div class="step-title"><mat-icon>looks_two</mat-icon> Drop the plain-text columns</div>
+                      <p class="step-desc">
+                        Deploy the merged code first. The tables are locked against writes, every encrypted copy is checked once
+                        more against its plain value, then these columns are dropped. This cannot be undone.
+                      </p>
+                      <div class="column-chips">
+                        <code *ngFor="let c of f.columns">{{ c }}</code>
+                      </div>
+                      <p class="step-error" *ngIf="f.columnsStatus === 'FAILED' && f.errorMessage">{{ f.errorMessage }}</p>
+                      <mat-checkbox class="finalize-confirm" [(ngModel)]="finalizeConfirmed" [disabled]="!f.canDropColumns">
+                        The merged application is deployed and no longer uses the plain-text columns.
+                      </mat-checkbox>
+                      <div class="stage-actions">
+                        <a *ngIf="s.route" mat-stroked-button [routerLink]="s.route">{{ s.actionLabel }}</a>
+                        <button mat-flat-button color="warn" type="button"
+                                [disabled]="busy() || !f.canDropColumns || !finalizeConfirmed" (click)="dropColumns()">
+                          <mat-icon>delete_forever</mat-icon> Drop columns &amp; finalize
+                        </button>
+                      </div>
+                    </li>
+                  </ol>
+                </ng-container>
+              </ng-container>
+
+              <ng-container *ngIf="s.status?.state === 'CURRENT' && s.stage !== 'FINALIZE'">
                 <div class="stage-actions">
                   <a *ngIf="s.route" mat-stroked-button [routerLink]="s.route">{{ s.actionLabel }}</a>
                   <button mat-flat-button color="primary" type="button"
-                          [disabled]="!canAdvance(s) || busy()" (click)="advance()">
-                    <mat-icon>{{ s.stage === 'FINALIZE' ? 'task_alt' : 'arrow_forward' }}</mat-icon>
-                    {{ s.stage === 'FINALIZE' ? 'Finalize Workspace' : 'Complete & Continue' }}
+                          [disabled]="!s.status?.ready || busy()" (click)="advance()">
+                    <mat-icon>arrow_forward</mat-icon> Complete &amp; Continue
                   </button>
                 </div>
                 <p class="hint" *ngIf="!s.status?.ready">
@@ -217,6 +370,39 @@ interface StageView extends StageDefinition {
     .stage-detail mat-icon { font-size: 18px; width: 18px; height: 18px; color: var(--pc-text-subtle); }
     .stage-detail.ready mat-icon { color: var(--pc-success); }
     .finalize-confirm { display: block; margin-top: 12px; }
+    .finalize-problems { margin: 12px 0 0; padding: 0; list-style: none; font-size: 13px; color: #b91c1c; }
+    .finalize-problems li { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; }
+    .finalize-problems mat-icon { font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; }
+    .outcome-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+    .outcome {
+      padding: 14px 16px; border: 1px solid var(--pc-border); border-radius: var(--pc-radius);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .outcome.selected { border-color: var(--pc-primary); box-shadow: 0 0 0 3px var(--pc-primary-soft); }
+    .outcome.locked:not(.selected) { opacity: 0.55; }
+    .outcome-title { font-weight: 600; margin-left: -8px; }
+    @media (max-width: 900px) { .outcome-grid { grid-template-columns: 1fr; } }
+    .finalize-steps { margin: 14px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .finalize-steps > li { padding: 14px 16px; border: 1px solid var(--pc-border); border-radius: var(--pc-radius); }
+    .finalize-steps > li.done { border-color: var(--pc-success); background: var(--pc-success-soft); }
+    .finalize-steps > li.upcoming { opacity: 0.75; }
+    .step-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+    .step-title mat-icon { color: var(--pc-primary); }
+    .finalize-steps > li.done .step-title mat-icon { color: var(--pc-success); }
+    .step-desc { margin: 6px 0 0; font-size: 13px; color: var(--pc-text-muted); }
+    .step-result { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; font-size: 13px; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f3f4f6; color: #4b5563; }
+    .pill.ok { background: var(--pc-success-soft); color: #047857; }
+    .pill.bad { background: var(--pc-danger-soft); color: #b91c1c; }
+    .step-error { margin: 8px 0 0; font-size: 13px; color: #b91c1c; }
+    .step-warnings { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 13px; }
+    .step-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+    details { margin-top: 10px; font-size: 13px; }
+    .file-list { margin: 6px 0 0; padding-left: 18px; }
+    .file-list .kind { display: inline-block; min-width: 72px; font-size: 11px; font-weight: 600; color: var(--pc-text-subtle); }
+    .column-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .column-chips code { padding: 2px 8px; border-radius: 6px; background: #f3f4f6; font-size: 12px; }
+    code { word-break: break-all; }
     .stage-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
     .hint { margin: 8px 0 0; font-size: 12.5px; color: var(--pc-text-subtle); }
 
@@ -231,6 +417,7 @@ export class WorkspaceLifecycleComponent implements OnInit {
   private readonly workspaceService = inject(WorkspaceService);
   private readonly notifications = inject(NotificationService);
   private readonly route = inject(ActivatedRoute);
+  private readonly finalizeApi = inject(FinalizeApi);
 
   /** Stage card targeted from the sidebar, e.g. /lifecycle#DATA_SYNC. */
   readonly fragment = toSignal(this.route.fragment, { initialValue: null });
@@ -240,7 +427,11 @@ export class WorkspaceLifecycleComponent implements OnInit {
   readonly lifecycle = signal<WorkspaceLifecycle | null>(null);
   readonly loading = signal(false);
   readonly busy = signal(false);
+  readonly finalize = signal<FinalizeStatus | null>(null);
   finalizeConfirmed = false;
+  acceptQueryWarnings = false;
+  dropEncrypted = false;
+  outcome: 'SUCCEEDED' | 'FAILED' | null = null;
 
   readonly workspaceName = toSignal(
     combineLatest([
@@ -279,23 +470,106 @@ export class WorkspaceLifecycleComponent implements OnInit {
         this.lifecycle.set(lc);
         this.loading.set(false);
         this.scrollToFragment();
+        if (lc.currentStage === 'FINALIZE') this.loadFinalize();
       },
       error: () => this.loading.set(false),
     });
   }
 
-  canAdvance(s: StageView): boolean {
-    if (!s.status?.ready) return false;
-    return s.stage !== 'FINALIZE' || this.finalizeConfirmed;
+  private loadFinalize(): void {
+    this.finalizeApi.status(this.workspaceId).subscribe((f) => this.finalize.set(f));
+  }
+
+  codeMerged(f: FinalizeStatus): boolean {
+    return f.codeStatus === 'COMPLETED' && f.mergeStatus === 'MERGED';
+  }
+
+  /** The release outcome is still to be reported (or the cleanup has to be run again). */
+  choosing(f: FinalizeStatus): boolean {
+    return !f.releaseOutcome || (f.releaseOutcome === 'SUCCEEDED' && f.codeStatus !== 'COMPLETED');
+  }
+
+  /** The Finalize card while it is the current stage: its outcome choice replaces the description and status line. */
+  finalizing(s: StageView): boolean {
+    return s.stage === 'FINALIZE' && s.status?.state === 'CURRENT';
+  }
+
+  /** Once an outcome is recorded (and its cleanup went through) the choice can no longer change. */
+  outcomeLocked(f: FinalizeStatus): boolean {
+    return this.busy() || (!!f.releaseOutcome && !this.choosing(f));
+  }
+
+  selectedOutcome(f: FinalizeStatus): 'SUCCEEDED' | 'FAILED' | null {
+    if (this.outcomeLocked(f) && f.releaseOutcome) return f.releaseOutcome;
+    return this.outcome ?? f.releaseOutcome ?? null;
+  }
+
+  canSubmitOutcome(f: FinalizeStatus): boolean {
+    if (this.busy()) return false;
+    switch (this.selectedOutcome(f)) {
+      case 'SUCCEEDED': return f.canCleanUp && (f.warnings.length === 0 || this.acceptQueryWarnings);
+      case 'FAILED': return f.canChooseOutcome;
+      default: return false;
+    }
+  }
+
+  submitOutcome(): void {
+    const f = this.finalize();
+    if (!f) return;
+    if (this.selectedOutcome(f) === 'SUCCEEDED') this.releaseSucceeded();
+    else if (this.selectedOutcome(f) === 'FAILED') this.releaseFailed();
+  }
+
+  encryptedColumns(f: FinalizeStatus): string {
+    return f.columns.map((c) => c.split('.').pop() + '_enc').join(', ');
   }
 
   advance(): void {
     this.busy.set(true);
-    this.workspaceService.advanceStage(this.workspaceId, this.finalizeConfirmed).subscribe({
-      next: (lc) => this.applyUpdate(lc, lc.currentStage === 'COMPLETED'
-        ? 'Workspace finalized'
-        : 'Stage completed'),
+    this.workspaceService.advanceStage(this.workspaceId).subscribe({
+      next: (lc) => this.applyUpdate(lc, 'Stage completed'),
       error: () => this.busy.set(false),
+    });
+  }
+
+  /** Release succeeded: clean up and merge the release (or retry its merge). */
+  releaseSucceeded(): void {
+    this.busy.set(true);
+    this.finalizeApi.releaseSucceeded(this.workspaceId, this.acceptQueryWarnings).subscribe({
+      next: (f) => {
+        this.finalize.set(f);
+        this.busy.set(false);
+        if (this.codeMerged(f)) this.notifications.showSuccess(`Release merged into ${f.baseBranch}`);
+        else this.notifications.showError(f.mergeMessage || 'The cleanup was pushed but could not be merged');
+        this.load();
+      },
+      // The failure (or the queries waiting for confirmation) is recorded on the run; show it
+      error: () => { this.busy.set(false); this.loadFinalize(); },
+    });
+  }
+
+  /** Release failed: close the pull request, optionally drop the encrypted columns; completes the lifecycle. */
+  releaseFailed(): void {
+    this.busy.set(true);
+    this.finalizeApi.releaseFailed(this.workspaceId, this.dropEncrypted).subscribe({
+      next: (f) => {
+        this.finalize.set(f);
+        this.workspaceService.getLifecycle(this.workspaceId).subscribe((lc) =>
+          this.applyUpdate(lc, `Rolled back: redeploy ${f.baseBranch}`));
+      },
+      error: () => { this.busy.set(false); this.loadFinalize(); },
+    });
+  }
+
+  /** Finalize step 2: drops the plain columns, which completes the lifecycle. */
+  dropColumns(): void {
+    this.busy.set(true);
+    this.finalizeApi.dropColumns(this.workspaceId, this.finalizeConfirmed).subscribe({
+      next: (f) => {
+        this.finalize.set(f);
+        this.workspaceService.getLifecycle(this.workspaceId).subscribe((lc) => this.applyUpdate(lc, 'Workspace finalized'));
+      },
+      error: () => { this.busy.set(false); this.loadFinalize(); },
     });
   }
 

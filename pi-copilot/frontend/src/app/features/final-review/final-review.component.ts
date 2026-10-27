@@ -61,7 +61,8 @@ interface Round {
   prNumber?: number;
   prUrl?: string;
   /** After approval: MERGED into the base branch, or FAILED (mergeMessage says why). */
-  mergeStatus?: 'MERGED' | 'FAILED' | null;
+  /** Set in Finalize: MERGED after a successful release, CLOSED after a failed one. */
+  mergeStatus?: 'MERGED' | 'FAILED' | 'CLOSED' | null;
   mergeSha?: string;
   mergeMessage?: string;
   mergedAt?: string;
@@ -115,9 +116,6 @@ export class FinalReviewApi {
     return this.http.post<void>(`${this.base}/runs/${runId}/retry`, {});
   }
 
-  merge(runId: string): Observable<void> {
-    return this.http.post<void>(`${this.base}/runs/${runId}/merge`, {});
-  }
 }
 
 @Component({
@@ -164,12 +162,15 @@ export class FinalReviewApi {
                 by {{ last.reviewedBy }}. The workspace moved on to Data Sync.
                 <ng-container [ngSwitch]="last.mergeStatus">
                   <span *ngSwitchCase="'MERGED'" class="merge-note">
-                    <mat-icon>merge</mat-icon> Merged into <code>{{ last.baseBranch }}</code>
+                    <mat-icon>merge</mat-icon> Release succeeded: merged into <code>{{ last.baseBranch }}</code>
                     <ng-container *ngIf="last.mergeSha"> ({{ last.mergeSha.substring(0, 7) }})</ng-container>.
-                    Safe to deploy: the new code stays off until encrypted read is enabled.
                   </span>
-                  <span *ngSwitchCase="'FAILED'" class="merge-note failed">
-                    <mat-icon>error</mat-icon> Could not merge into <code>{{ last.baseBranch }}</code>: {{ last.mergeMessage }}
+                  <span *ngSwitchCase="'CLOSED'" class="merge-note failed">
+                    <mat-icon>undo</mat-icon> Release failed: the pull request was closed; <code>{{ last.baseBranch }}</code> is the rollback.
+                  </span>
+                  <span *ngSwitchDefault class="merge-note">
+                    <mat-icon>rocket_launch</mat-icon> Deploy <code>{{ last.branchName }}</code> as the release.
+                    It is merged into <code>{{ last.baseBranch }}</code> only after you report the release as succeeded in Finalize.
                   </span>
                 </ng-container>
               </span>
@@ -184,10 +185,6 @@ export class FinalReviewApi {
           <button *ngIf="bannerKind() === 'failed' && last.parentRunId" mat-flat-button color="primary" type="button"
                   (click)="retry(last)" [disabled]="busy()">
             <mat-icon>replay</mat-icon> Retry round
-          </button>
-          <button *ngIf="bannerKind() === 'approved' && last.mergeStatus !== 'MERGED'" mat-flat-button color="primary"
-                  type="button" (click)="merge(last)" [disabled]="busy()">
-            <mat-icon>merge</mat-icon> {{ last.mergeStatus === 'FAILED' ? 'Retry merge' : 'Merge' }}
           </button>
         </div>
         <mat-progress-bar *ngIf="isWorking(last)" mode="indeterminate"></mat-progress-bar>
@@ -845,17 +842,6 @@ export class FinalReviewComponent implements OnInit, OnDestroy {
           : 'Changes requested: click Run again on Implementation to start the next round');
         this.store.dispatch(workspaceActions.loadWorkspaces());
         this.selectedId.set(null);
-        this.refresh();
-      },
-      error: () => this.busy.set(false),
-    });
-  }
-
-  merge(r: Round): void {
-    this.busy.set(true);
-    this.api.merge(r.id).subscribe({
-      next: () => {
-        this.busy.set(false);
         this.refresh();
       },
       error: () => this.busy.set(false),

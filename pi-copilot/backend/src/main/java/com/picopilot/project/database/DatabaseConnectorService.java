@@ -1,6 +1,8 @@
 package com.picopilot.project.database;
 
+import com.picopilot.audit.service.AuditService;
 import com.picopilot.common.crypto.SecretCipher;
+import com.picopilot.common.model.Severity;
 import com.picopilot.common.exception.ResourceNotFoundException;
 import com.picopilot.common.exception.ValidationException;
 import com.picopilot.common.net.HostPolicy;
@@ -43,6 +45,7 @@ public class DatabaseConnectorService {
     private final WorkspaceService workspaceService;
     private final ApplicationProjectRepository projectRepository;
     private final DatabaseConnectorRepository connectorRepository;
+    private final AuditService auditService;
 
     public record ConnectionRequest(String projectName,
                                     @NotBlank String host,
@@ -106,6 +109,7 @@ public class DatabaseConnectorService {
         connector = apply(connector, project, request);
 
         log.info("User {} saved database connector {} for project {}", userId, connector.getId(), project.getName());
+        audit(connector, "DATABASE_CONNECTOR_SAVED", userId);
         return toSummary(connector);
     }
 
@@ -126,6 +130,7 @@ public class DatabaseConnectorService {
 
         connector = apply(connector, resolveProject(workspaceId, request.projectName().trim()), effective);
         log.info("User {} updated database connector {}", userId, connectorId);
+        audit(connector, "DATABASE_CONNECTOR_UPDATED", userId);
         return toSummary(connector);
     }
 
@@ -138,8 +143,17 @@ public class DatabaseConnectorService {
     @Transactional
     public void delete(UUID workspaceId, UUID connectorId, String userId) {
         workspaceService.requireMembership(workspaceId, userId);
-        connectorRepository.delete(find(workspaceId, connectorId));
+        DatabaseConnector connector = find(workspaceId, connectorId);
+        connectorRepository.delete(connector);
         log.info("User {} deleted database connector {}", userId, connectorId);
+        audit(connector, "DATABASE_CONNECTOR_DELETED", userId);
+    }
+
+    private void audit(DatabaseConnector connector, String action, String userId) {
+        auditService.record(connector.getWorkspaceId(), connector.getProject() == null ? null : connector.getProject().getId(),
+            userId, null, action, "DATABASE_CONNECTOR", connector.getId().toString(),
+            connector.getHost() + ":" + connector.getPort() + "/" + connector.getDatabaseName(), "SUCCESS",
+            action.endsWith("_DELETED") ? Severity.MEDIUM : Severity.INFO, null, null, null);
     }
 
     @Transactional(readOnly = true)

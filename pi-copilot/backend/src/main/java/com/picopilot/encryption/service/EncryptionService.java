@@ -1,6 +1,8 @@
 package com.picopilot.encryption.service;
 
+import com.picopilot.audit.service.AuditService;
 import com.picopilot.common.event.StageWorkCompletedEvent;
+import com.picopilot.common.model.Severity;
 import com.picopilot.common.exception.EncryptionException;
 import com.picopilot.common.exception.InvalidStateException;
 import com.picopilot.common.exception.ResourceNotFoundException;
@@ -20,7 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -36,6 +40,7 @@ public class EncryptionService {
     private final MigrationPlanRepository migrationPlanRepository;
     private final WorkspaceService workspaceService;
     private final ApplicationEventPublisher events;
+    private final AuditService auditService;
 
     @Transactional(readOnly = true)
     public List<EncryptionProviderConfig> listProviders(UUID workspaceId, String userId) {
@@ -57,6 +62,7 @@ public class EncryptionService {
         }
         EncryptionProviderConfig saved = configRepository.save(config);
         syncLocalKey(saved);
+        audit(saved, "ENCRYPTION_PROVIDER_CREATED", "SUCCESS", userId, null);
         return saved;
     }
 
@@ -87,6 +93,7 @@ public class EncryptionService {
         EncryptionProviderConfig saved = configRepository.save(config);
         syncLocalKey(saved);
         log.info("Encryption provider {} updated by {}", providerId, userId);
+        audit(saved, "ENCRYPTION_PROVIDER_UPDATED", "SUCCESS", userId, null);
         return saved;
     }
 
@@ -101,6 +108,18 @@ public class EncryptionService {
         keyRepository.deleteAll(keyRepository.findByProviderConfigId(providerId));
         configRepository.delete(config);
         log.info("Encryption provider {} deleted by {}", providerId, userId);
+        audit(config, "ENCRYPTION_PROVIDER_DELETED", "SUCCESS", userId, null);
+    }
+
+    private void audit(EncryptionProviderConfig config, String action, String outcome, String userId, String error) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("providerType", config.getProviderType());
+        if (config.getKeyName() != null) metadata.put("keyName", config.getKeyName());
+        if (error != null) metadata.put("error", error);
+        auditService.record(config.getWorkspaceId(), null, userId, null, action, "ENCRYPTION_PROVIDER",
+            config.getId().toString(), config.getName(), outcome,
+            "FAILURE".equals(outcome) || action.endsWith("_DELETED") ? Severity.MEDIUM : Severity.INFO,
+            null, null, metadata);
     }
 
     private EncryptionProviderConfig loadProvider(UUID workspaceId, UUID providerId) {
@@ -155,7 +174,8 @@ public class EncryptionService {
         keyRepository.save(active);
     }
 
-    @Transactional
+    // A failed check is still saved and audited, then reported to the caller
+    @Transactional(noRollbackFor = EncryptionException.class)
     public EncryptionProviderConfig validateProvider(UUID workspaceId, UUID providerId,
                                                        String userId) {
         workspaceService.requireMembership(workspaceId, userId);
@@ -174,11 +194,13 @@ public class EncryptionService {
             // Actual implementation would call KMS/Vault health endpoint for cloud providers
             config.setVerified(true);
             EncryptionProviderConfig saved = configRepository.save(config);
+            audit(saved, "ENCRYPTION_PROVIDER_VERIFIED", "SUCCESS", userId, null);
             events.publishEvent(new StageWorkCompletedEvent(workspaceId, WorkspaceStage.ENCRYPTION_SETUP, userId));
             return saved;
         } catch (Exception e) {
             config.setVerified(false);
             configRepository.save(config);
+            audit(config, "ENCRYPTION_PROVIDER_VERIFIED", "FAILURE", userId, e.getMessage());
             throw new EncryptionException("Provider health check failed: " + e.getMessage(), e);
         }
     }

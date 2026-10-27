@@ -1,5 +1,7 @@
 package com.picopilot.implementation.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.picopilot.common.event.StageWorkCompletedEvent;
 import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.implementation.model.ImplementationFileChange;
@@ -43,6 +45,7 @@ public class ImprovementExecutor {
     private final CodeReviser reviser;
     private final ApplicationEventPublisher events;
     private final ReviewLineCommentRepository lineCommentRepository;
+    private final ObjectMapper objectMapper;
 
     /** Current state of one pull-request file across all rounds so far. */
     private static final class PrFile {
@@ -73,6 +76,7 @@ public class ImprovementExecutor {
                 .map(ImplementationRun::getImprovementRequest)
                 .toList();
             PullRequestGateway.Repo repo = pullRequests.repo(run.getRepositoryConnectorId());
+            addEntityFiles(run, repo, files, logText);
             List<String> roots = allowedRoots(repo.includes(), files.keySet());
             appendLog(logText, "Asking the AI to apply the comment to " + files.size() + " file(s) under " + roots);
 
@@ -200,6 +204,37 @@ public class ImprovementExecutor {
             throw new IllegalStateException("The implementation has no recorded file changes to revise");
         }
         return files;
+    }
+
+    /**
+     * The entities of the approved tables are left out of the pull request (existing code is not changed), but
+     * reviewers comment on them; give the AI their current content from the branch so it can add to them.
+     */
+    private void addEntityFiles(ImplementationRun run, PullRequestGateway.Repo repo, Map<String, PrFile> files,
+                                StringBuilder logText) {
+        if (run.getColumnsJson() == null) return;
+        Set<String> paths = new LinkedHashSet<>();
+        try {
+            for (JsonNode column : objectMapper.readTree(run.getColumnsJson())) {
+                String path = column.path("entityFile").asText("");
+                if (!path.isEmpty() && !files.containsKey(path)) paths.add(path);
+            }
+        } catch (Exception e) {
+            log.info("Could not read the columns of run {}: {}", run.getId(), e.getMessage());
+            return;
+        }
+        for (String path : paths) {
+            String content = pullRequests.readFile(repo, run.getBranchName(), path);
+            if (content == null) {
+                appendLog(logText, "Could not read " + path + " from " + run.getBranchName());
+                continue;
+            }
+            PrFile f = new PrFile();
+            f.baseContent = content;
+            f.content = content;
+            files.put(path, f);
+            appendLog(logText, "Included entity " + path + " for the AI to change if the comment asks for it");
+        }
     }
 
     /** The connector's folders, or the application folders the pull request already touches. */

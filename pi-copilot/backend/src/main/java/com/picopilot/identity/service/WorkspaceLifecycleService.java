@@ -13,8 +13,9 @@ import com.picopilot.common.model.WorkspaceStage;
 import com.picopilot.encryption.repository.EncryptionProviderConfigRepository;
 import com.picopilot.datasync.model.DataSyncRun;
 import com.picopilot.datasync.repository.DataSyncRunRepository;
-import com.picopilot.featureflag.repository.FeatureFlagRepository;
+import com.picopilot.implementation.model.FinalizeRun;
 import com.picopilot.implementation.model.ImplementationRun;
+import com.picopilot.implementation.repository.FinalizeRunRepository;
 import com.picopilot.implementation.repository.ImplementationRunRepository;
 import com.picopilot.identity.dto.StageStatus;
 import com.picopilot.identity.dto.WorkspaceLifecycleResponse;
@@ -56,10 +57,10 @@ public class WorkspaceLifecycleService {
     private final PiFindingRepository findingRepository;
     private final EncryptionProviderConfigRepository providerRepository;
     private final BackfillJobRepository backfillJobRepository;
-    private final FeatureFlagRepository featureFlagRepository;
     private final ScannerService scannerService;
     private final ImplementationRunRepository implementationRunRepository;
     private final DataSyncRunRepository dataSyncRunRepository;
+    private final FinalizeRunRepository finalizeRunRepository;
 
     private record Check(boolean ready, String detail) {}
 
@@ -83,8 +84,7 @@ public class WorkspaceLifecycleService {
             throw new InvalidStateException("Stage " + current + " is not complete: " + check.detail());
         }
         if (current == WorkspaceStage.FINALIZE && !confirmed) {
-            throw new ValidationException(
-                "Confirm that legacy plain-text code paths and columns have been removed before finalizing");
+            throw new ValidationException("Confirm that the plain-text columns can be retired before finalizing");
         }
 
         moveTo(workspace, current, current.next(), userId, "WORKSPACE_STAGE_ADVANCED");
@@ -248,13 +248,27 @@ public class WorkspaceLifecycleService {
                     : "Data sync " + latest.getStatus().toLowerCase()
                         + (latest.getErrorMessage() != null ? ": " + latest.getErrorMessage() : ""));
             }
-            case ENABLE_ENCRYPTION -> {
-                long flags = featureFlagRepository.countByWorkspaceId(workspaceId);
-                long encrypted = featureFlagRepository.countByWorkspaceIdAndCurrentState(workspaceId, "ENCRYPTED_READ");
-                yield new Check(encrypted > 0, encrypted + " of " + flags + " flags reading encrypted data");
+            case FINALIZE -> {
+                FinalizeRun latest = finalizeRunRepository.findFirstByWorkspaceIdOrderByCreatedAtDesc(workspaceId).orElse(null);
+                boolean releaseFailed = latest != null && FinalizeRun.FAILED.equals(latest.getReleaseOutcome());
+                boolean dropped = latest != null && FinalizeRun.DROPPED.equals(latest.getColumnsStatus());
+                boolean done = releaseFailed ? FinalizeRun.DROPPED.equals(latest.getColumnsStatus())
+                    || FinalizeRun.KEPT.equals(latest.getColumnsStatus()) : dropped;
+                yield new Check(done, latest == null || latest.getReleaseOutcome() == null
+                        ? "Deploy the approved release branch, then report whether the release succeeded"
+                    : releaseFailed ? (done ? "Release failed: pull request closed, encrypted columns "
+                        + (dropped ? "dropped" : "kept") : "Release failed: rolling back" + (latest.getErrorMessage() != null
+                        ? " (" + latest.getErrorMessage() + ")" : ""))
+                    : dropped ? plural(latest.getDroppedColumns() == null ? 0 : latest.getDroppedColumns().lines().count(),
+                        "plain-text column", "plain-text columns") + " dropped"
+                    : FinalizeRun.PENDING.equals(latest.getCodeStatus()) ? "Release succeeded: confirm the queries on encrypted fields"
+                    : FinalizeRun.FAILED.equals(latest.getCodeStatus()) ? "Release cleanup failed: " + latest.getErrorMessage()
+                    : FinalizeRun.RUNNING.equals(latest.getCodeStatus()) ? "Retiring the plain-text code paths"
+                    : !FinalizeRun.MERGED.equals(latest.getMergeStatus())
+                        ? "Merge the release pull request" + (latest.getMergeMessage() != null ? " (" + latest.getMergeMessage() + ")" : "")
+                    : FinalizeRun.FAILED.equals(latest.getColumnsStatus()) ? "Dropping the columns failed: " + latest.getErrorMessage()
+                    : "Release merged: deploy it, then drop the plain-text columns");
             }
-            // Cleanup is done in the target application; the stage records the user's sign-off.
-            case FINALIZE -> new Check(true, "Remove duplicate code paths and plain-text columns, then confirm");
             case COMPLETED -> new Check(true, "Lifecycle complete");
             case REJECTED -> new Check(false, "Rejected in Final Review");
         };

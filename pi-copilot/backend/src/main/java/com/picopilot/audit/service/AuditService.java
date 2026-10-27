@@ -6,12 +6,14 @@ import com.picopilot.common.model.Severity;
 import com.picopilot.identity.service.WorkspaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,6 +24,7 @@ public class AuditService {
 
     private final AuditEventRepository auditRepository;
     private final WorkspaceService workspaceService;
+    private final ApplicationEventPublisher events;
 
     @Transactional
     public AuditEvent record(UUID workspaceId, UUID projectId, String actor, String actorRole,
@@ -59,6 +62,7 @@ public class AuditService {
 
         AuditEvent saved = auditRepository.save(event);
         log.debug("Audit event recorded: {} by {} on {}", action, actor, targetType);
+        events.publishEvent(new AuditEmailNotifier.AuditRecorded(saved));
         return saved;
     }
 
@@ -66,6 +70,23 @@ public class AuditService {
     public Page<AuditEvent> getWorkspaceEvents(UUID workspaceId, String userId, Pageable pageable) {
         workspaceService.requireMembership(workspaceId, userId);
         return auditRepository.findByWorkspaceIdOrderByEventTimeDesc(workspaceId, pageable);
+    }
+
+    /** Newest first; blank filters match everything. */
+    @Transactional(readOnly = true)
+    public Page<AuditEvent> search(UUID workspaceId, String action, String outcome, String userId, Pageable pageable) {
+        workspaceService.requireMembership(workspaceId, userId);
+        return auditRepository.search(workspaceId, blankToNull(action), blankToNull(outcome), pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> actions(UUID workspaceId, String userId) {
+        workspaceService.requireMembership(workspaceId, userId);
+        return auditRepository.findDistinctActions(workspaceId);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Transactional(readOnly = true)

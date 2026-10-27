@@ -414,7 +414,7 @@ export class ImplementationComponent implements OnInit, OnDestroy {
   }
 
   codeLabel(status: string): string {
-    if (status.startsWith('MAPPED')) return 'Mapped (flag-gated)';
+    if (status.startsWith('MAPPED')) return 'Writes both, reads encrypted';
     if (status.startsWith('UPDATED')) return 'Updated';
     if (status === 'ALREADY_PRESENT') return 'Already encrypted';
     if (status === 'NO_ENTITY') return 'No entity found';

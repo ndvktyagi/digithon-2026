@@ -45,22 +45,18 @@ class NativeQueryEncryptorTest {
         """;
 
     private static final String EMAIL_CASE = "CASE WHEN e.email_enc IS NOT NULL THEN e.email_enc ELSE e.email END AS email";
+    private static final String PHONE_CASE = "CASE WHEN e.phone_enc IS NOT NULL THEN e.phone_enc ELSE e.phone END AS phone";
 
     @Test
-    void addsTwinMethodsAndLeavesOriginalsUntouched() {
+    void rewritesNativeQueriesInPlace() {
         NativeQueryEncryptor.Result r = NativeQueryEncryptor.encrypt(REPOSITORY, "employees", List.of("email", "phone"));
         assertThat(r.changed()).isTrue();
         assertThat(r.columnOutcomes()).containsEntry("email", NativeQueryEncryptor.UPDATED)
             .containsEntry("phone", NativeQueryEncryptor.UPDATED);
-        // Only additions: removing the generated twins gives back the original file
-        String withoutTwins = r.source().replaceAll("(?s)\\n\\n    /\\*\\* PI Co-Pilot: .*?PiEncrypted\\([^)]*\\);", "");
-        assertThat(withoutTwins).isEqualTo(REPOSITORY);
-        assertThat(r.source()).contains("List<Object[]> findAllWithDepartmentPiEncrypted();")
-            .contains("Optional<Object[]> findByIdWithDepartmentPiEncrypted(Long id);");
-        assertThat(count(r.source(), EMAIL_CASE)).isEqualTo(2);
-        assertThat(r.source()).contains("CASE WHEN e.phone_enc IS NOT NULL THEN e.phone_enc ELSE e.phone END AS phone");
+        assertThat(r.source()).isEqualTo(REPOSITORY.replace("e.email, e.phone,", EMAIL_CASE + ", " + PHONE_CASE + ","));
+        assertThat(r.source()).doesNotContain(NativeQueryEncryptor.METHOD_SUFFIX);
         // the JPQL query is not touched
-        assertThat(count(r.source(), "findJpql")).isEqualTo(1);
+        assertThat(r.source()).contains("@Query(\"select e from Employee e where e.email = :email\")");
     }
 
     @Test
@@ -70,14 +66,18 @@ class NativeQueryEncryptorTest {
         assertThat(twice.changed()).isFalse();
         assertThat(twice.source()).isEqualTo(once);
         assertThat(twice.columnOutcomes()).containsEntry("email", NativeQueryEncryptor.UPDATED);
+        // a column approved later is added to the same query
+        String more = NativeQueryEncryptor.encrypt(once, "employees", List.of("email", "phone")).source();
+        assertThat(count(more, EMAIL_CASE)).isEqualTo(2);
+        assertThat(count(more, PHONE_CASE)).isEqualTo(2);
     }
 
     @Test
-    void oneTwinCoversEveryApprovedTableOfAJoin() {
+    void rewritesEveryApprovedTableOfAJoin() {
         NativeQueryEncryptor.MultiResult r = NativeQueryEncryptor.encrypt(REPOSITORY,
             Map.of("employees", List.of("email"), "departments", List.of("name")));
-        assertThat(count(r.source(), "findAllWithDepartmentPiEncrypted")).isEqualTo(1);
-        assertThat(r.source()).contains("CASE WHEN d.name_enc IS NOT NULL THEN d.name_enc ELSE d.name END AS department_name");
+        assertThat(count(r.source(), "CASE WHEN d.name_enc IS NOT NULL THEN d.name_enc ELSE d.name END AS department_name"))
+            .isEqualTo(2);
         assertThat(r.outcomes().get("departments")).containsEntry("name", NativeQueryEncryptor.UPDATED);
     }
 
@@ -89,23 +89,20 @@ class NativeQueryEncryptorTest {
     }
 
     @Test
-    void copiesAnnotationsAboveTheQuery() {
-        String src = "interface R {\n    @Transactional(readOnly = true)\n"
-            + "    @Query(value = \"SELECT id, email AS mail FROM employees WHERE id = ?1\", nativeQuery = true)\n"
-            + "    Object[] mail(@Param(\"id\") Long id);\n}\n";
-        String out = NativeQueryEncryptor.encrypt(src, "employees", List.of("email")).source();
-        assertThat(out).contains("    @Transactional(readOnly = true)\n    @Query(value = \"SELECT id, "
-            + "CASE WHEN employees.email_enc IS NOT NULL THEN employees.email_enc ELSE employees.email END AS mail FROM employees"
-            + " WHERE id = ?1\", nativeQuery = true)\n    Object[] mailPiEncrypted(@Param(\"id\") Long id);");
-        assertThat(out).startsWith(src.substring(0, src.length() - 2));
-    }
-
-    @Test
     void reportsStarSelectsAsUnsupported() {
         String src = "@Query(value = \"SELECT * FROM employees\", nativeQuery = true)\nList<Object[]> all();";
         NativeQueryEncryptor.Result r = NativeQueryEncryptor.encrypt(src, "employees", List.of("email"));
         assertThat(r.changed()).isFalse();
         assertThat(r.columnOutcomes()).containsEntry("email", NativeQueryEncryptor.UNSUPPORTED);
+    }
+
+    @Test
+    void namesUnaliasedTableColumns() {
+        String src = "interface R {\n    @Query(value = \"SELECT id, email AS mail FROM employees WHERE id = ?1\", nativeQuery = true)\n"
+            + "    Object[] mail(@Param(\"id\") Long id);\n}\n";
+        assertThat(NativeQueryEncryptor.encrypt(src, "employees", List.of("email")).source())
+            .contains("SELECT id, CASE WHEN employees.email_enc IS NOT NULL THEN employees.email_enc ELSE employees.email END"
+                + " AS mail FROM employees WHERE id = ?1");
     }
 
     private static int count(String s, String needle) {

@@ -86,6 +86,20 @@ class PiDetectionRulesTest {
     }
 
     @Test
+    void recognisesReleasedEncryptedColumnsWithoutTheirPlainColumn() {
+        assertThat(PiDetectionRules.encryptedSuffixBase("email_enc")).isEqualTo("email");
+        assertThat(PiDetectionRules.encryptedSuffixBase("FIRST_NAME_ENC")).isEqualTo("FIRST_NAME");
+        assertThat(PiDetectionRules.encryptedSuffixBase("email")).isNull();
+        assertThat(PiDetectionRules.encryptedSuffixBase("_enc")).isNull();
+        // ciphertext, or nothing to check yet: already encrypted
+        assertThat(PiDetectionRules.isReleasedEncryptedColumn(List.of("enc:v1:abc", "enc:v1:def"))).isTrue();
+        assertThat(PiDetectionRules.isReleasedEncryptedColumn(List.of())).isTrue();
+        assertThat(PiDetectionRules.isReleasedEncryptedColumn(java.util.Arrays.asList(null, " "))).isTrue();
+        // a "_enc" column holding plain text is still plain PI
+        assertThat(PiDetectionRules.isReleasedEncryptedColumn(List.of("a@x.io", "b@x.io"))).isFalse();
+    }
+
+    @Test
     void ignoresFreeTextValues() {
         assertThat(PiDetectionRules.matchValues(List.of("hello world", "pending", "shipped", "n/a"))).isEmpty();
     }
