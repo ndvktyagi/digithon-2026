@@ -34,17 +34,17 @@ export const routes: Routes = [
     data: { embedded: true },
   },
   {
+    // Landing page after login; renders inside the app shell with or without a workspace.
+    path: 'dashboard',
+    loadComponent: () =>
+      import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
+    canActivate: [authGuard],
+  },
+  { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+  {
     path: '',
     canActivate: [authGuard, workspaceGuard],
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
-      {
-        path: 'dashboard',
-        loadComponent: () =>
-          import('./features/dashboard/dashboard.component').then(
-            (m) => m.DashboardComponent
-          ),
-      },
       {
         path: 'lifecycle',
         loadComponent: () =>

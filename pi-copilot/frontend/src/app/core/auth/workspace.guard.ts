@@ -16,7 +16,7 @@ export const workspaceGuard: CanActivateFn = () => {
   return store.select(selectIsWorkspaceSelected).pipe(
     tap((selected) => {
       if (!selected) {
-        router.navigate(['/select-workspace']);
+        router.navigate(['/workspaces']);
       }
     }),
     map((selected) => selected),

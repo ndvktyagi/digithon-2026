@@ -425,6 +425,8 @@ export class DashboardComponent implements OnInit {
   readonly workflow = LIFECYCLE_STAGES;
 
   ngOnInit(): void {
+    // Findings are workspace-scoped; with no workspace in use there is nothing to load yet.
+    if (!sessionStorage.getItem('workspace_id')) return;
     this.scans.list().pipe(
       switchMap((scans) => {
         const latest = scans

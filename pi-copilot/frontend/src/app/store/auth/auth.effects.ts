@@ -69,7 +69,7 @@ export class AuthEffects {
       ofType(authActions.loginSuccess),
       tap(({ tokens }) => {
         this.authService.setTokens(tokens);
-        this.router.navigate(['/select-workspace']);
+        this.router.navigate(['/dashboard']);
       })
     ),
     { dispatch: false }
