@@ -415,6 +415,7 @@ export class ImplementationComponent implements OnInit, OnDestroy {
 
   codeLabel(status: string): string {
     if (status.startsWith('MAPPED')) return 'Writes both, reads encrypted';
+    if (status.startsWith('RETIRED')) return 'Already reads encrypted only';
     if (status.startsWith('UPDATED')) return 'Updated';
     if (status === 'ALREADY_PRESENT') return 'Already encrypted';
     if (status === 'NO_ENTITY') return 'No entity found';
@@ -424,7 +425,8 @@ export class ImplementationComponent implements OnInit, OnDestroy {
   }
 
   codeTone(status: string): string {
-    if (status.startsWith('MAPPED') || status.startsWith('UPDATED') || status === 'ALREADY_PRESENT') return 'ok';
+    if (status.startsWith('MAPPED') || status.startsWith('RETIRED') || status.startsWith('UPDATED')
+      || status === 'ALREADY_PRESENT') return 'ok';
     if (status === 'PENDING') return 'neutral';
     return 'warn';
   }

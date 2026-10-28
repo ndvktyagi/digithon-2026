@@ -162,14 +162,14 @@ export class PostgresqlConnectorComponent implements OnInit {
   @Output() cancelled = new EventEmitter<void>();
 
   readonly form = this.fb.nonNullable.group({
-    projectName: [''],
-    host: ['', Validators.required],
+    projectName: ['emp-db'],
+    host: ['localhost', Validators.required],
     port: [5432, [Validators.required, Validators.min(1), Validators.max(65535)]],
-    databaseName: ['', Validators.required],
-    sslMode: ['require', Validators.required],
-    username: ['', Validators.required],
-    password: ['', Validators.required],
-    schemaScope: [''],
+    databaseName: ['employee', Validators.required],
+    sslMode: ['disable', Validators.required],
+    username: ['postgres', Validators.required],
+    password: ['postgres', Validators.required],
+    schemaScope: ['public'],
   });
 
   testResult: TestResult | null = null;

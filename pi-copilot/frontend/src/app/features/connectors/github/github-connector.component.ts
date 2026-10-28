@@ -222,7 +222,7 @@ export class GithubConnectorComponent implements OnInit {
   @Output() cancelled = new EventEmitter<void>();
 
   readonly credentials = this.fb.nonNullable.group({
-    githubUrl: ['https://github.com', Validators.required],
+    githubUrl: ['https://github.com/ndvktyagi/employee.git', Validators.required],
     token: ['', Validators.required],
   });
   readonly repoSearch = new FormControl<RepositorySummary | string>('', { nonNullable: true });

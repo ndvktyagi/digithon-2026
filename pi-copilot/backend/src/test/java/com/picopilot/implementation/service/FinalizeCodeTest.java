@@ -153,7 +153,20 @@ class FinalizeCodeTest {
             .contains("implements AttributeConverter<String, String>").doesNotContain("PiEncryptionFlags");
         assertThat(EncryptionCodeTemplates.nativeQueryDecryptor("com.digithon.hr.security"))
             .contains("query.nativeQuery()").doesNotContain("PiEncryptionFlags");
-        assertThat(EncryptionCodeTemplates.dropMigration(List.of("ALTER TABLE \"public\".\"employees\" DROP COLUMN IF EXISTS \"email\";")))
-            .contains("DROP COLUMN IF EXISTS \"email\"");
+    }
+
+    @Test
+    void dropMigrationOnlyDropsExistingColumnsWithAPopulatedCopy() {
+        String sql = EncryptionCodeTemplates.dropMigration(List.of(
+            new EncryptionCodeTemplates.PlainColumn("public", "employees", "last_name")));
+        assertThat(sql).contains("-- drop public.employees.last_name\nDO $$\nBEGIN\n"
+                + "    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = "
+                + "'employees' AND column_name = 'last_name') THEN\n")
+            .contains("AND column_name = 'last_name_enc') THEN\n"
+                + "            RAISE EXCEPTION 'public.employees.last_name_enc is missing; not dropping last_name';")
+            .contains("IF EXISTS (SELECT 1 FROM \"public\".\"employees\" WHERE \"last_name\" IS NOT NULL AND "
+                + "\"last_name_enc\" IS NULL) THEN\n")
+            .contains("        ALTER TABLE \"public\".\"employees\" DROP COLUMN \"last_name\";\n    END IF;\nEND $$;\n")
+            .contains("a stale copy is not detected");
     }
 }

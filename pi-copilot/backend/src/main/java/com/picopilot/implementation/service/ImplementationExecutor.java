@@ -309,7 +309,8 @@ public class ImplementationExecutor {
                 p.codeStatus = result.columnOutcomes().getOrDefault(p.column, "NO_FIELD");
                 p.entityFile = path;
             }
-            mappedColumns += result.fields().size();
+            mappedColumns += result.fields().size() + (int) result.columnOutcomes().values().stream()
+                .filter(o -> o.startsWith(JpaEntityAnalyzer.RETIRED + ":")).count();
             entities.add(new EntityChange(path, source, result));
         }
         if (mappedColumns == 0) {

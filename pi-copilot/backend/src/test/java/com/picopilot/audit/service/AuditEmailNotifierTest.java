@@ -3,12 +3,20 @@ package com.picopilot.audit.service;
 import com.picopilot.audit.model.AuditEvent;
 import com.picopilot.common.model.Severity;
 import com.picopilot.identity.repository.WorkspaceRepository;
+import jakarta.mail.Address;
+import jakarta.mail.Message;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.Arrays;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +35,7 @@ class AuditEmailNotifierTest {
     private AuditEmailNotifier notifier(boolean enabled, String to, String actions, String minSeverity) {
         ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(sender);
+        when(sender.createMimeMessage()).thenAnswer(inv -> new MimeMessage((Session) null));
         when(workspaces.findById(any())).thenReturn(Optional.empty());
         return new AuditEmailNotifier(provider, workspaces, enabled, "pi@x.io", to, actions, minSeverity, "[PI]");
     }
@@ -60,21 +69,44 @@ class AuditEmailNotifierTest {
     }
 
     @Test
-    void sendsReadableEmailToEveryRecipient() {
-        notifier(true, "a@x.io, b@x.io", "*", "INFO")
-            .onAuditRecorded(new AuditEmailNotifier.AuditRecorded(event("SCAN_APPROVED", Severity.INFO)));
-        ArgumentCaptor<SimpleMailMessage> mail = ArgumentCaptor.forClass(SimpleMailMessage.class);
+    void sendsHtmlEmailWithPlainTextFallbackToEveryRecipient() throws Exception {
+        AuditEvent event = event("SCAN_APPROVED", Severity.INFO);
+        event.setTargetName("<script>alert(1)</script>");
+        notifier(true, "a@x.io, b@x.io", "*", "INFO").onAuditRecorded(new AuditEmailNotifier.AuditRecorded(event));
+        ArgumentCaptor<MimeMessage> mail = ArgumentCaptor.forClass(MimeMessage.class);
         verify(sender).send(mail.capture());
-        assertThat(mail.getValue().getTo()).containsExactly("a@x.io", "b@x.io");
-        assertThat(mail.getValue().getFrom()).isEqualTo("pi@x.io");
-        assertThat(mail.getValue().getSubject()).isEqualTo("[PI] Scan approved: Nightly scan");
-        assertThat(mail.getValue().getText()).contains("Action:     Scan approved (SCAN_APPROVED)").contains("Actor:      local:admin");
+        MimeMessage message = mail.getValue();
+        message.saveChanges();
+
+        assertThat(Arrays.stream(message.getRecipients(Message.RecipientType.TO)).map(Address::toString))
+            .containsExactly("a@x.io", "b@x.io");
+        assertThat(message.getFrom()[0].toString()).isEqualTo("pi@x.io");
+        assertThat(message.getSubject()).isEqualTo("[PI] Scan approved: <script>alert(1)</script>");
+
+        // Round-trip through the wire format so the parts are read back exactly as a mail client would
+        ByteArrayOutputStream raw = new ByteArrayOutputStream();
+        message.writeTo(raw);
+        MimeMessage received = new MimeMessage(null, new ByteArrayInputStream(raw.toByteArray()));
+        assertThat(textPart(received, "text/plain")).contains("Action:     Scan approved (SCAN_APPROVED)");
+        assertThat(textPart(received, "text/html")).contains("Audit trail notification")
+            .contains("Scan approved: &lt;script&gt;").doesNotContain("<script>");
+    }
+
+    private static String textPart(Part part, String mimeType) throws Exception {
+        if (part.isMimeType(mimeType)) return (String) part.getContent();
+        if (part.getContent() instanceof Multipart multipart) {
+            for (int i = 0; i < multipart.getCount(); i++) {
+                String found = textPart(multipart.getBodyPart(i), mimeType);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Test
     void doesNotSendWhenDisabled() {
         notifier(false, "a@x.io", "*", "INFO")
             .onAuditRecorded(new AuditEmailNotifier.AuditRecorded(event("SCAN_APPROVED", Severity.INFO)));
-        verify(sender, never()).send(any(SimpleMailMessage.class));
+        verify(sender, never()).send(any(MimeMessage.class));
     }
 }

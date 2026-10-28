@@ -90,6 +90,16 @@ class JpaEntityAnalyzerTest {
     }
 
     @Test
+    void reportsColumnsAnEarlierReleaseAlreadyRetired() {
+        String retired = EMPLOYEE.replace("    @Column(name = \"first_name\", nullable = false, length = 80)\n",
+            "    @Column(name = \"first_name_enc\", nullable = false)\n    @Convert(converter = PiEncryptedStringConverter.class)\n");
+        JpaEntityAnalyzer.Result r = JpaEntityAnalyzer.analyze(retired, List.of("first_name", "email"));
+        assertThat(r.fields()).containsExactlyEntriesOf(Map.of("email", "email"));
+        assertThat(r.columnOutcomes()).containsEntry("first_name", "RETIRED:firstName").containsEntry("email", "MAPPED:email");
+        assertThat(JpaEntityAnalyzer.mapsEncryptedColumn(retired, "firstName", "first_name")).isTrue();
+    }
+
+    @Test
     void writesBothColumnsAndReadsTheEncryptedOne() {
         String src = JpaEntityAnalyzer.withEncryptedFields(EMPLOYEE, fields("email", "email", "phone", "phone"), CONVERTER);
         // the plain fields keep their mapping, so the plain columns stay current for the rollback

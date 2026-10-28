@@ -494,7 +494,7 @@ public class FinalizeService {
             });
         }
 
-        addDropMigration(files, moduleRoot, columns, changes, kinds, logText);
+        addDropMigration(repo, files, moduleRoot, columns, changes, kinds, logText);
 
         if (!blockers.isEmpty()) {
             throw new IllegalStateException(String.join("; ", blockers));
@@ -505,14 +505,20 @@ public class FinalizeService {
         return new Cleanup(baseSha, baseTree, changes, kinds, List.copyOf(new java.util.LinkedHashSet<>(warnings)));
     }
 
-    private void addDropMigration(Map<String, String> files, String moduleRoot, List<Column> columns,
-                                  Map<String, String> changes, Map<String, String> kinds, StringBuilder logText) {
+    /**
+     * Adds a Flyway migration dropping the plain columns that no earlier PI Co-Pilot drop migration covers, so a
+     * column approved in a later round is still retired by the application's own migrations.
+     */
+    private void addDropMigration(PullRequestGateway.Repo repo, Map<String, String> files, String moduleRoot,
+                                  List<Column> columns, Map<String, String> changes, Map<String, String> kinds,
+                                  StringBuilder logText) {
         String dir = null;
         int max = 0;
-        for (String path : files.keySet()) {
-            Matcher m = FLYWAY_FILE.matcher(path);
-            if (m.matches() && path.startsWith(moduleRoot)) {
-                if (path.endsWith(DROP_MIGRATION)) return; // added by an earlier Finalize
+        StringBuilder earlier = new StringBuilder();
+        for (Map.Entry<String, String> file : files.entrySet()) {
+            Matcher m = FLYWAY_FILE.matcher(file.getKey());
+            if (m.matches() && file.getKey().startsWith(moduleRoot)) {
+                if (file.getKey().endsWith(DROP_MIGRATION)) earlier.append(readBlob(repo, file.getValue())).append('\n');
                 dir = m.group(1);
                 max = Math.max(max, Integer.parseInt(m.group(2)));
             }
@@ -521,10 +527,19 @@ public class FinalizeService {
             appendLog(logText, "No Flyway migrations in the repository; the columns are dropped only in the database");
             return;
         }
+        List<EncryptionCodeTemplates.PlainColumn> missing = columns.stream()
+            .map(c -> new EncryptionCodeTemplates.PlainColumn(c.schema(), c.table(), c.column()))
+            .distinct()
+            // generated earlier: with a marker per column, or (older versions) a plain DROP COLUMN statement
+            .filter(c -> !earlier.toString().contains(c.marker()) && !earlier.toString().contains(
+                quote(c.table()) + " DROP COLUMN IF EXISTS " + quote(c.column())))
+            .toList();
+        if (missing.isEmpty()) {
+            appendLog(logText, "An earlier Flyway migration already drops these plain columns");
+            return;
+        }
         String path = dir + "V" + (max + 1) + DROP_MIGRATION;
-        changes.put(path, EncryptionCodeTemplates.dropMigration(columns.stream()
-            .map(c -> "ALTER TABLE " + quote(c.schema()) + "." + quote(c.table()) + " DROP COLUMN IF EXISTS " + quote(c.column()) + ";")
-            .distinct().toList()));
+        changes.put(path, EncryptionCodeTemplates.dropMigration(missing));
         kinds.put(path, "ADDED");
         appendLog(logText, "Added Flyway migration " + path);
     }
@@ -800,7 +815,9 @@ public class FinalizeService {
             String database = String.valueOf(c.get("database"));
             String name = c.get("table") + "." + c.get("column");
             String code = String.valueOf(c.get("codeStatus"));
-            if (!code.startsWith(JpaEntityAnalyzer.MAPPED + ":") || c.get("entityFile") == null) {
+            // RETIRED: an earlier release already moved the field onto its _enc column; only the plain column is left
+            String prefix = code.startsWith(JpaEntityAnalyzer.RETIRED + ":") ? JpaEntityAnalyzer.RETIRED : JpaEntityAnalyzer.MAPPED;
+            if (!code.startsWith(prefix + ":") || c.get("entityFile") == null) {
                 problems.add(name + ": the code was not updated in Implementation (" + code
                     + "), so dropping the plain column would break it");
                 continue;
@@ -814,7 +831,7 @@ public class FinalizeService {
                 continue;
             }
             columns.add(new Column(connectorId, database, String.valueOf(c.get("schema")), String.valueOf(c.get("table")),
-                String.valueOf(c.get("column")), code.substring(JpaEntityAnalyzer.MAPPED.length() + 1),
+                String.valueOf(c.get("column")), code.substring(prefix.length() + 1),
                 String.valueOf(c.get("entityFile"))));
         }
         return columns;

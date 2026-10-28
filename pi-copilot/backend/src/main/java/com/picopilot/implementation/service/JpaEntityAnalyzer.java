@@ -22,6 +22,11 @@ public final class JpaEntityAnalyzer {
     public static final String ENCRYPTED_SUFFIX = "_enc";
     /** Column outcome prefix for a column mapped to a String field: {@code MAPPED:<field>}. */
     public static final String MAPPED = "MAPPED";
+    /**
+     * Column outcome prefix for a column whose field an earlier Finalize already moved onto {@code <column>_enc}:
+     * {@code RETIRED:<field>}. The code needs no change; only the plain column is left to drop.
+     */
+    public static final String RETIRED = "RETIRED";
     /** Ends every statement PI Co-Pilot adds to a callback method, so later rounds and Finalize can find it. */
     static final String MARKER = "// PI Co-Pilot";
     static final String WRITE_METHOD = "piCopilotEncrypt";
@@ -30,7 +35,8 @@ public final class JpaEntityAnalyzer {
     /**
      * @param entityName     fully qualified entity class name (Hibernate's default entity name)
      * @param fields         approved column -> entity field, for the columns that could be mapped
-     * @param columnOutcomes approved column -> MAPPED:field, ALREADY_PRESENT, NO_FIELD or UNSUPPORTED_TYPE:type
+     * @param columnOutcomes approved column -> MAPPED:field, RETIRED:field, ALREADY_PRESENT, NO_FIELD or
+     *                       UNSUPPORTED_TYPE:type
      */
     public record Result(String entityName, Map<String, String> fields, Map<String, String> columnOutcomes) {}
 
@@ -100,6 +106,15 @@ public final class JpaEntityAnalyzer {
             .findFirst().orElse(null);
     }
 
+    /** The String field mapped to {@code <column>_enc} through a converter, as a successful Finalize leaves it. */
+    private static Field retiredField(List<Field> declared, String column) {
+        return declared.stream()
+            .filter(f -> (column + ENCRYPTED_SUFFIX).equalsIgnoreCase(explicitColumn(f.annotations()))
+                && f.annotations().contains("@Convert")
+                && (f.type().equals("String") || f.type().equals("java.lang.String")))
+            .findFirst().orElse(null);
+    }
+
     /** @param columns plain column names approved for encryption */
     public static Result analyze(String source, List<String> columns) {
         List<Field> declared = fields(source);
@@ -107,7 +122,11 @@ public final class JpaEntityAnalyzer {
         Map<String, String> outcomes = new LinkedHashMap<>();
         for (String column : columns) {
             Field field = fieldFor(declared, column);
-            if (field == null) {
+            Field retired = field == null ? retiredField(declared, column) : null;
+            if (retired != null) {
+                // An earlier release already moved the field onto the encrypted column; the plain one is a leftover
+                outcomes.put(column, RETIRED + ":" + retired.name());
+            } else if (field == null) {
                 outcomes.put(column, "NO_FIELD");
             } else if (!field.type().equals("String") && !field.type().equals("java.lang.String")) {
                 outcomes.put(column, "UNSUPPORTED_TYPE:" + field.type());
